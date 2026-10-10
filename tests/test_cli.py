@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_sandbox.cli import MAX_NAME_LENGTH, Arguments, parse_args, prepare
+from agent_sandbox.cli import MAX_NAME_LENGTH, Arguments, ensure_valid_args, parse_args, prepare_sbx_execution
 from agent_sandbox.config import Config
 from agent_sandbox.errors import SandboxError
 from agent_sandbox.sbx import Sbx
@@ -105,7 +105,8 @@ def run_prepare(
         git_name=git_name,
         git_email=git_email,
     )
-    return prepare(args, config, Sbx(host, agent.env), agent)
+    ensure_valid_args(args)
+    return prepare_sbx_execution(args, config, Sbx(host, agent.env), agent)
 
 
 def with_ssh_key(host, ssh_key):
@@ -226,10 +227,10 @@ def test_valid_sandbox_names(name):
 
 
 def test_launches_sbx_with_only_the_sandboxs_agent(ready_host, config, socket, workspace, context):
-    launch = run_prepare(ready_host, config, socket, workspace, context, agent_args=["--continue"])
+    cmd = run_prepare(ready_host, config, socket, workspace, context, agent_args=["--continue"])
 
-    assert launch.command == ("sbx", "run", "--name", NAME, "--", "--continue")
-    assert launch.env == {"PATH": "/bin", "SSH_AUTH_SOCK": str(socket)}
+    assert cmd.command == ("sbx", "run", "--name", NAME, "--", "--continue")
+    assert cmd.env == {"PATH": "/bin", "SSH_AUTH_SOCK": str(socket)}
 
 
 def test_every_sbx_call_carries_the_sandboxs_socket(ready_host, config, socket, workspace, context):
@@ -259,18 +260,18 @@ def test_reuses_an_existing_sandbox(ready_host, config, socket, workspace, conte
 def test_the_agent_holds_exactly_the_given_key(ready_host, config, socket, workspace, context, ssh_key):
     with_ssh_key(ready_host, ssh_key)
 
-    launch = run_prepare(ready_host, config, socket, workspace, context, ssh_key=ssh_key)
+    cmd = run_prepare(ready_host, config, socket, workspace, context, ssh_key=ssh_key)
 
     commands = ready_host.commands
     assert commands.index(DELETE_ALL) < commands.index(("ssh-add", "-q", str(ssh_key)))
-    assert any("test-key" in note for note in launch.notes)
+    assert "test-key" in cmd.message
 
 
 def test_warns_when_no_ssh_key_is_given(ready_host, config, socket, workspace, context):
-    launch = run_prepare(ready_host, config, socket, workspace, context)
+    cmd = run_prepare(ready_host, config, socket, workspace, context)
 
     assert DELETE_ALL in ready_host.commands  # still emptied: no key from an earlier launch
-    assert any("holds no key" in note for note in launch.notes)
+    assert "holds no key" in cmd.message
 
 
 # --- prepare: github token ---------------------------------------------------
@@ -279,19 +280,19 @@ def test_warns_when_no_ssh_key_is_given(ready_host, config, socket, workspace, c
 def test_sets_the_sandboxs_github_token(ready_host, config, socket, workspace, context, github_token_file):
     ready_host.responses[SET_TOKEN] = 0
 
-    launch = run_prepare(ready_host, config, socket, workspace, context, github_token_file=github_token_file)
+    cmd = run_prepare(ready_host, config, socket, workspace, context, github_token_file=github_token_file)
 
     assert SET_TOKEN in ready_host.commands
     assert CLEAR_TOKEN not in ready_host.commands
-    assert any("github" in note for note in launch.notes)
+    assert "github" in cmd.message
 
 
 def test_clears_the_sandboxs_github_token_when_not_given(ready_host, config, socket, workspace, context):
-    launch = run_prepare(ready_host, config, socket, workspace, context)
+    cmd = run_prepare(ready_host, config, socket, workspace, context)
 
     assert CLEAR_TOKEN in ready_host.commands  # still cleared: no token from an earlier launch
     assert not any(command[:3] == ("sbx", "secret", "set") for command in ready_host.commands)
-    assert any("no token" in note for note in launch.notes)
+    assert "no token" in cmd.message
 
 
 def test_github_token_set_failure_is_reported(ready_host, config, socket, workspace, context, github_token_file):
@@ -317,21 +318,21 @@ def test_sets_the_sandboxs_git_identity(ready_host, config, socket, workspace, c
     ready_host.responses[set_name] = 0
     ready_host.responses[set_email] = 0
 
-    launch = run_prepare(ready_host, config, socket, workspace, context, git_name="Dev", git_email="dev@example.com")
+    cmd = run_prepare(ready_host, config, socket, workspace, context, git_name="Dev", git_email="dev@example.com")
 
     assert set_name in ready_host.commands
     assert set_email in ready_host.commands
     assert BLANK_GIT_NAME not in ready_host.commands
-    assert any("Dev <dev@example.com>" in note for note in launch.notes)
+    assert "Dev <dev@example.com>" in cmd.message
 
 
 def test_blanks_the_sandboxs_git_identity_when_not_given(ready_host, config, socket, workspace, context):
-    launch = run_prepare(ready_host, config, socket, workspace, context)
+    cmd = run_prepare(ready_host, config, socket, workspace, context)
 
     # still blanked: no identity from an earlier launch, and git refuses to commit with none
     assert BLANK_GIT_NAME in ready_host.commands
     assert BLANK_GIT_EMAIL in ready_host.commands
-    assert any("not configured" in note for note in launch.notes)
+    assert "not configured" in cmd.message
 
 
 def test_git_identity_failure_is_reported(ready_host, config, socket, workspace, context):
@@ -347,23 +348,23 @@ def test_git_identity_failure_is_reported(ready_host, config, socket, workspace,
 def test_signs_commits_with_the_given_ssh_key(ready_host, config, socket, workspace, context, ssh_key):
     with_ssh_key(ready_host, ssh_key)
 
-    launch = run_prepare(ready_host, config, socket, workspace, context, ssh_key=ssh_key)
+    cmd = run_prepare(ready_host, config, socket, workspace, context, ssh_key=ssh_key)
 
     assert SET_GPG_FORMAT in ready_host.commands
     assert SET_GPGSIGN in ready_host.commands
     assert signing_key_command(PUBLIC_KEY) in ready_host.commands
     assert BLANK_SIGNING_KEY not in ready_host.commands
-    assert any("ssh-signed" in note for note in launch.notes)
+    assert "ssh-signed" in cmd.message
 
 
 def test_blanks_the_signing_key_when_no_ssh_key_is_given(ready_host, config, socket, workspace, context):
-    launch = run_prepare(ready_host, config, socket, workspace, context)
+    cmd = run_prepare(ready_host, config, socket, workspace, context)
 
     # still configured to fail: no key means no way to sign, but commit.gpgsign stays on
     assert SET_GPG_FORMAT in ready_host.commands
     assert SET_GPGSIGN in ready_host.commands
     assert BLANK_SIGNING_KEY in ready_host.commands
-    assert any("no ssh key" in note for note in launch.notes)
+    assert "no ssh key" in cmd.message
 
 
 def test_commit_signing_failure_is_reported(ready_host, config, socket, workspace, context):

@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import Host
+from agent_sandbox.host import CommandToExecute, Host
 
 # ssh-add -l exit codes, as seen inside the sandbox
 _HAS_KEYS = 0
@@ -74,7 +74,7 @@ class Sbx:
         raise SandboxError(f"could not list the sandbox's keys: {result.stderr.strip()}")
 
     def _sbx(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return self._host.run(["sbx", *args], env=self._env)
+        return self._host.run(CommandToExecute(("sbx", *args), env=self._env))
 
 
 def fingerprints(ssh_add_lines: Sequence[str]) -> set[str]:

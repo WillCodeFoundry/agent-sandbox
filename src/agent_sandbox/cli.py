@@ -4,13 +4,13 @@ import argparse
 import os
 import re
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from agent_sandbox.config import AGENT, Config
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import SubprocessHost
+from agent_sandbox.host import CommandToExecute, SubprocessHost
 from agent_sandbox.sbx import Sbx, fingerprints, sbx_run_args
 from agent_sandbox.ssh_agent import SshAgent
 
@@ -33,15 +33,6 @@ class Arguments:
     github_token_file: Path | None = None
     git_name: str | None = None
     git_email: str | None = None
-
-
-@dataclass(frozen=True)
-class Launch:
-    """What to run, and what to tell the user before running it."""
-
-    command: tuple[str, ...]
-    env: Mapping[str, str]
-    notes: tuple[str, ...] = ()
 
 
 class _StoreOnce(argparse.Action):
@@ -147,13 +138,12 @@ def parse_args(argv: Sequence[str]) -> Arguments:
     )
 
 
-def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launch:
-    """Validate args, synchronize the sandbox, and describe what to run."""
-    ensure_valid_args(args)
+def prepare_sbx_execution(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> CommandToExecute:
+    """Synchronize the sandbox and describe what running it will do. Call ensure_valid_args(args) first."""
     loaded, public_key = apply(args, config, sbx, agent)
-    notes = describe(args, agent, loaded, public_key)
+    message = describe(args, agent, loaded, public_key)
     command = sbx_run_args(args.name, args.agent_args)
-    return Launch(command, agent.env, notes)
+    return CommandToExecute(command, env=agent.env, message=message)
 
 
 def apply(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> tuple[list[str], str | None]:
@@ -178,10 +168,10 @@ def apply(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> tuple[l
     return loaded, public_key
 
 
-def describe(args: Arguments, agent: SshAgent, loaded: list[str], public_key: str | None) -> tuple[str, ...]:
-    """Build the notes describing what apply() just did."""
+def describe(args: Arguments, agent: SshAgent, loaded: list[str], public_key: str | None) -> str:
+    """Build the message describing what apply() just did, ready to log as-is."""
     # fmt: off
-    return (
+    notes = (
         f"ssh-agent: {agent.socket}",
         *(f"key:       {key}" for key in loaded),
         *([] if loaded else ["warning: the sandbox's agent holds no key (pass --ssh-key)"]),
@@ -196,6 +186,7 @@ def describe(args: Arguments, agent: SshAgent, loaded: list[str], public_key: st
         "signing:   no ssh key (pass --ssh-key; commits will fail until set)",
     )
     # fmt: on
+    return "\n".join(f"==> {note}" for note in notes)
 
 
 def public_key_path(ssh_key: Path) -> Path:
@@ -270,12 +261,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     host = SubprocessHost()
     agent = SshAgent(host, config.sockets_dir / f"{args.name}.sock", os.environ, config.uid)
     try:
-        launch = prepare(args, config, Sbx(host, agent.env), agent)
+        ensure_valid_args(args)
+        cmd = prepare_sbx_execution(args, config, Sbx(host, agent.env), agent)
     except SandboxError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
-    for note in launch.notes:
-        print(f"==> {note}", file=sys.stderr)
+    print(cmd.message, file=sys.stderr)
     # Replace this process with sbx: it gets the terminal, signals and exit code.
-    os.execvpe(launch.command[0], launch.command, launch.env)
+    assert cmd.env is not None  # prepare_sbx_execution always sets it from agent.env
+    os.execvpe(cmd.command[0], cmd.command, cmd.env)

@@ -1,12 +1,12 @@
 import os
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
 from agent_sandbox.config import Config
-from agent_sandbox.host import Host
+from agent_sandbox.host import CommandToExecute, Host
 
 Response = str | int
 
@@ -22,15 +22,14 @@ class FakeHost:
         self.responses: dict[tuple[str, ...], Response | list[Response]] = {}
         self.calls: list[tuple[tuple[str, ...], Mapping[str, str] | None]] = []
 
-    def run(self, args: Sequence[str], *, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-        command = tuple(args)
-        self.calls.append((command, env))
-        response = self.responses[command]
+    def run(self, cmd: CommandToExecute) -> subprocess.CompletedProcess[str]:
+        self.calls.append((cmd.command, cmd.env))
+        response = self.responses[cmd.command]
         if isinstance(response, list):
             response = response.pop(0)
         if isinstance(response, int):
-            return subprocess.CompletedProcess(command, response, stdout="", stderr="")
-        return subprocess.CompletedProcess(command, 0, stdout=response, stderr="")
+            return subprocess.CompletedProcess(cmd.command, response, stdout="", stderr="")
+        return subprocess.CompletedProcess(cmd.command, 0, stdout=response, stderr="")
 
     @property
     def commands(self) -> list[tuple[str, ...]]:

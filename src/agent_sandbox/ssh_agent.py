@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import Host
+from agent_sandbox.host import CommandToExecute, Host
 
 # ssh-add -l exit codes
 _HAS_KEYS = 0
@@ -39,7 +39,7 @@ class SshAgent:
         self.socket.unlink(missing_ok=True)  # stale socket from a dead agent
         # The env script ssh-agent prints is ignored on purpose: nothing in
         # this process should start using the sandbox's agent by accident.
-        result = self._host.run(["ssh-agent", "-a", str(self.socket), "-s"])
+        result = self._host.run(CommandToExecute(("ssh-agent", "-a", str(self.socket), "-s")))
         if result.returncode != 0 or not self._is_running():
             raise SandboxError(f"ssh-agent failed to start on {self.socket}")
 
@@ -65,7 +65,7 @@ class SshAgent:
         return self._ssh_add("-l").returncode in (_HAS_KEYS, _NO_KEYS)
 
     def _ssh_add(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return self._host.run(["ssh-add", *args], env=self.env)
+        return self._host.run(CommandToExecute(("ssh-add", *args), env=self.env))
 
 
 def ensure_private_dir(path: Path, uid: int) -> None:
