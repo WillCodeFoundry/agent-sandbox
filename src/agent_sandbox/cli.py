@@ -118,6 +118,8 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
         sbx.create(args.name, config.agent, workspace, context)
     if github_token_file is not None:
         sbx.set_github_token(args.name, github_token_file.read_text().strip())
+    else:
+        sbx.clear_github_token(args.name)
     check_forwarded_keys(fingerprints(loaded), sbx.agent_fingerprints(args.name))
 
     notes = (
@@ -127,7 +129,8 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
         f"sandbox:   {args.name}",
         f"workspace: {workspace}",
         f"context:   {context} (read-only)",
-        *(["github:    token configured"] if github_token_file is not None else []),
+        "github:    token configured" if github_token_file is not None else
+        "github:    no token (pass --github-token-file to enable gh)",
     )
     command = sbx_run_args(args.name, args.agent_args)
     return Launch(command, agent.env, notes)

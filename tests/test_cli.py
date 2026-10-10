@@ -13,6 +13,8 @@ LIST_KEYS = ("ssh-add", "-l")  # on the host
 DELETE_ALL = ("ssh-add", "-D")
 EXISTS = ("sbx", "exec", NAME, "true")
 SANDBOX_LIST_KEYS = ("sbx", "exec", NAME, "ssh-add", "-l")
+CLEAR_TOKEN = ("sbx", "secret", "rm", "github", "--sandbox", NAME, "-f")
+SET_TOKEN = ("sbx", "secret", "set", "github", "--sandbox", NAME, "-t", "ghp_abc123")
 NO_KEYS, NO_AGENT = 1, 2  # ssh-add -l exit codes
 KEY_LINE = "256 SHA256:abc test-key (ED25519)\n"
 PERSONAL_ENV = {"PATH": "/bin", "SSH_AUTH_SOCK": "/personal.sock", "SSH_AGENT_PID": "42"}
@@ -53,8 +55,10 @@ def socket(config: Config) -> Path:
 
 @pytest.fixture
 def ready_host(host):
-    """A running, empty agent and an existing sandbox that sees no keys."""
-    host.responses = {LIST_KEYS: NO_KEYS, DELETE_ALL: 0, EXISTS: 0, SANDBOX_LIST_KEYS: NO_KEYS}
+    """A running, empty agent and an existing sandbox that sees no keys and no github token."""
+    host.responses = {
+        LIST_KEYS: NO_KEYS, DELETE_ALL: 0, EXISTS: 0, SANDBOX_LIST_KEYS: NO_KEYS, CLEAR_TOKEN: 0,
+    }
     return host
 
 
@@ -180,31 +184,39 @@ def test_warns_when_no_keys_are_given(ready_host, config, socket, workspace, con
 def test_sets_the_sandboxs_github_token(
     ready_host, config, socket, workspace, context, github_token_file
 ):
-    set_token = ("sbx", "secret", "set", "github", "--sandbox", NAME, "-t", "ghp_abc123")
-    ready_host.responses[set_token] = 0
+    ready_host.responses[SET_TOKEN] = 0
 
     launch = run_prepare(
         ready_host, config, socket, workspace, context, github_token_file=github_token_file
     )
 
-    assert set_token in ready_host.commands
+    assert SET_TOKEN in ready_host.commands
+    assert CLEAR_TOKEN not in ready_host.commands
     assert any("github" in note for note in launch.notes)
 
 
-def test_no_github_token_is_set_when_not_given(ready_host, config, socket, workspace, context):
-    run_prepare(ready_host, config, socket, workspace, context)
+def test_clears_the_sandboxs_github_token_when_not_given(ready_host, config, socket, workspace, context):
+    launch = run_prepare(ready_host, config, socket, workspace, context)
 
+    assert CLEAR_TOKEN in ready_host.commands  # still cleared: no token from an earlier launch
     assert not any(command[:3] == ("sbx", "secret", "set") for command in ready_host.commands)
+    assert any("no token" in note for note in launch.notes)
 
 
 def test_github_token_set_failure_is_reported(
     ready_host, config, socket, workspace, context, github_token_file
 ):
-    set_token = ("sbx", "secret", "set", "github", "--sandbox", NAME, "-t", "ghp_abc123")
-    ready_host.responses[set_token] = 1
+    ready_host.responses[SET_TOKEN] = 1
 
     with pytest.raises(SandboxError, match="sbx secret set failed"):
         run_prepare(ready_host, config, socket, workspace, context, github_token_file=github_token_file)
+
+
+def test_github_token_clear_failure_is_reported(ready_host, config, socket, workspace, context):
+    ready_host.responses[CLEAR_TOKEN] = 1
+
+    with pytest.raises(SandboxError, match="sbx secret rm failed"):
+        run_prepare(ready_host, config, socket, workspace, context)
 
 
 # --- prepare: verifying what the sandbox sees -------------------------------

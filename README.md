@@ -42,10 +42,12 @@ The sandbox's SSH agent listens on `/tmp/sbx-agents-<uid>/<name>.sock`. On every
 is emptied and given exactly the `--key` files, so keys from earlier launches never linger.
 The agent (`claude`) and the sockets directory are set in `src/agent_sandbox/config.py`.
 
-If `--github-token-file` is given, its contents are set as the sandbox's `github` secret
-(`sbx secret set github --sandbox NAME -t TOKEN`) on every launch, so this is also how an
-existing sandbox's token gets rotated. The token is scoped to this one sandbox only, so
-different sandboxes can use different tokens.
+The sandbox's `github` secret is kept in sync with `--github-token-file` on every launch,
+the same way the ssh-agent's keys are kept in sync with `--key`: given, it's set to the
+file's contents (`sbx secret set github --sandbox NAME -t TOKEN`), so this is also how an
+existing sandbox's token gets rotated; omitted, it's cleared (`sbx secret rm github
+--sandbox NAME -f`), so a token from an earlier launch never lingers. The token is scoped
+to this one sandbox only, so different sandboxes can use different tokens.
 
 ## Path rules
 
