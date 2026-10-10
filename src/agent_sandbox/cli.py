@@ -29,6 +29,8 @@ class Arguments:
     keys: tuple[Path, ...] = ()
     agent_args: tuple[str, ...] = ()
     github_token_file: Path | None = None
+    git_name: str | None = None
+    git_email: str | None = None
 
 
 @dataclass(frozen=True)
@@ -91,10 +93,20 @@ def parse_args(argv: Sequence[str]) -> Arguments:
         "--github-token-file", type=Path, default=None, metavar="FILE",
         help="file holding a GitHub token to give the sandbox (enables gh, e.g. to open PRs)",
     )
+    parser.add_argument(
+        "--git-name", default=None, metavar="NAME",
+        help="git user.name to set inside the sandbox; requires --git-email",
+    )
+    parser.add_argument(
+        "--git-email", default=None, metavar="EMAIL",
+        help="git user.email to set inside the sandbox; requires --git-name",
+    )
     parsed = parser.parse_args(own)
+    if (parsed.git_name is None) != (parsed.git_email is None):
+        parser.error("--git-name and --git-email must be given together")
     return Arguments(
         parsed.name, parsed.workspace, parsed.context, tuple(parsed.keys), tuple(agent_args),
-        parsed.github_token_file,
+        parsed.github_token_file, parsed.git_name, parsed.git_email,
     )
 
 
@@ -120,6 +132,7 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
         sbx.set_github_token(args.name, github_token_file.read_text().strip())
     else:
         sbx.clear_github_token(args.name)
+    sbx.set_git_identity(args.name, args.git_name or "", args.git_email or "")
     check_forwarded_keys(fingerprints(loaded), sbx.agent_fingerprints(args.name))
 
     notes = (
@@ -131,6 +144,8 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
         f"context:   {context} (read-only)",
         "github:    token configured" if github_token_file is not None else
         "github:    no token (pass --github-token-file to enable gh)",
+        f"git:       {args.git_name} <{args.git_email}>" if args.git_name is not None else
+        "git:       not configured (pass --git-name/--git-email; commits will fail until set)",
     )
     command = sbx_run_args(args.name, args.agent_args)
     return Launch(command, agent.env, notes)

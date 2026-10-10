@@ -15,6 +15,8 @@ EXISTS = ("sbx", "exec", NAME, "true")
 SANDBOX_LIST_KEYS = ("sbx", "exec", NAME, "ssh-add", "-l")
 CLEAR_TOKEN = ("sbx", "secret", "rm", "github", "--sandbox", NAME, "-f")
 SET_TOKEN = ("sbx", "secret", "set", "github", "--sandbox", NAME, "-t", "ghp_abc123")
+BLANK_GIT_NAME = ("sbx", "exec", NAME, "git", "config", "--global", "user.name", "")
+BLANK_GIT_EMAIL = ("sbx", "exec", NAME, "git", "config", "--global", "user.email", "")
 NO_KEYS, NO_AGENT = 1, 2  # ssh-add -l exit codes
 KEY_LINE = "256 SHA256:abc test-key (ED25519)\n"
 PERSONAL_ENV = {"PATH": "/bin", "SSH_AUTH_SOCK": "/personal.sock", "SSH_AGENT_PID": "42"}
@@ -55,18 +57,23 @@ def socket(config: Config) -> Path:
 
 @pytest.fixture
 def ready_host(host):
-    """A running, empty agent and an existing sandbox that sees no keys and no github token."""
+    """A running, empty agent and an existing sandbox with no keys, token or git identity."""
     host.responses = {
         LIST_KEYS: NO_KEYS, DELETE_ALL: 0, EXISTS: 0, SANDBOX_LIST_KEYS: NO_KEYS, CLEAR_TOKEN: 0,
+        BLANK_GIT_NAME: 0, BLANK_GIT_EMAIL: 0,
     }
     return host
 
 
 def run_prepare(
-    host, config, socket, workspace, context, keys=(), agent_args=(), github_token_file=None
+    host, config, socket, workspace, context, keys=(), agent_args=(), github_token_file=None,
+    git_name=None, git_email=None,
 ):
     agent = SshAgent(host, socket, PERSONAL_ENV, config.uid)
-    args = Arguments(NAME, workspace, context, tuple(keys), tuple(agent_args), github_token_file)
+    args = Arguments(
+        NAME, workspace, context, tuple(keys), tuple(agent_args), github_token_file,
+        git_name, git_email,
+    )
     return prepare(args, config, Sbx(host, agent.env), agent)
 
 
@@ -83,12 +90,13 @@ def with_key(host, key):
 def test_parses_all_arguments():
     args = parse_args([
         "--name", NAME, "--context", "ctx", "--key", "k1", "--key", "k2",
-        "--github-token-file", "tok", "/src/proj", "--", "--continue", "--", "x",
+        "--github-token-file", "tok", "--git-name", "Dev", "--git-email", "dev@example.com",
+        "/src/proj", "--", "--continue", "--", "x",
     ])
 
     assert args == Arguments(
         NAME, Path("/src/proj"), Path("ctx"), (Path("k1"), Path("k2")), ("--continue", "--", "x"),
-        Path("tok"),
+        Path("tok"), "Dev", "dev@example.com",
     )
 
 
@@ -99,6 +107,24 @@ def test_keys_are_optional():
 def test_github_token_file_is_optional():
     args = parse_args(["--name", "n", "--context", "ctx", "/src/proj"])
     assert args.github_token_file is None
+
+
+def test_git_identity_is_optional():
+    args = parse_args(["--name", "n", "--context", "ctx", "/src/proj"])
+    assert args.git_name is None
+    assert args.git_email is None
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--git-name", "Dev"],  # no --git-email
+        ["--git-email", "dev@example.com"],  # no --git-name
+    ],
+)
+def test_git_name_and_email_must_be_given_together(argv):
+    with pytest.raises(SystemExit):
+        parse_args(["--name", "n", "--context", "ctx", "/src/proj", *argv])
 
 
 @pytest.mark.parametrize(
@@ -216,6 +242,41 @@ def test_github_token_clear_failure_is_reported(ready_host, config, socket, work
     ready_host.responses[CLEAR_TOKEN] = 1
 
     with pytest.raises(SandboxError, match="sbx secret rm failed"):
+        run_prepare(ready_host, config, socket, workspace, context)
+
+
+# --- prepare: git identity ---------------------------------------------------
+
+
+def test_sets_the_sandboxs_git_identity(ready_host, config, socket, workspace, context):
+    set_name = ("sbx", "exec", NAME, "git", "config", "--global", "user.name", "Dev")
+    set_email = ("sbx", "exec", NAME, "git", "config", "--global", "user.email", "dev@example.com")
+    ready_host.responses[set_name] = 0
+    ready_host.responses[set_email] = 0
+
+    launch = run_prepare(
+        ready_host, config, socket, workspace, context, git_name="Dev", git_email="dev@example.com"
+    )
+
+    assert set_name in ready_host.commands
+    assert set_email in ready_host.commands
+    assert BLANK_GIT_NAME not in ready_host.commands
+    assert any("Dev <dev@example.com>" in note for note in launch.notes)
+
+
+def test_blanks_the_sandboxs_git_identity_when_not_given(ready_host, config, socket, workspace, context):
+    launch = run_prepare(ready_host, config, socket, workspace, context)
+
+    # still blanked: no identity from an earlier launch, and git refuses to commit with none
+    assert BLANK_GIT_NAME in ready_host.commands
+    assert BLANK_GIT_EMAIL in ready_host.commands
+    assert any("not configured" in note for note in launch.notes)
+
+
+def test_git_identity_failure_is_reported(ready_host, config, socket, workspace, context):
+    ready_host.responses[BLANK_GIT_NAME] = 1
+
+    with pytest.raises(SandboxError, match="sbx exec git config failed"):
         run_prepare(ready_host, config, socket, workspace, context)
 
 

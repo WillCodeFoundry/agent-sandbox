@@ -32,6 +32,8 @@ $ agent_sandbox --name myproj-dev --context ./agents/dev --key ~/.ssh/dev_ed2551
 | `--context DIR` | Directory mounted read-only into the sandbox |
 | `--key FILE` | Private key for the sandbox's SSH agent; repeat for several, or omit for none |
 | `--github-token-file FILE` | File holding a GitHub token to give the sandbox (enables `gh`, e.g. to open PRs) |
+| `--git-name NAME` | git `user.name` to set inside the sandbox; requires `--git-email` |
+| `--git-email EMAIL` | git `user.email` to set inside the sandbox; requires `--git-name` |
 | `-- ARGS` | Passed to the agent |
 
 A sandbox's mounts are fixed when it is created: re-using a `--name` with a different
@@ -48,6 +50,12 @@ file's contents (`sbx secret set github --sandbox NAME -t TOKEN`), so this is al
 existing sandbox's token gets rotated; omitted, it's cleared (`sbx secret rm github
 --sandbox NAME -f`), so a token from an earlier launch never lingers. The token is scoped
 to this one sandbox only, so different sandboxes can use different tokens.
+
+The sandbox's global git identity (`git config --global user.name`/`user.email`) is set
+from `--git-name`/`--git-email` on every launch, the same way. Omit both and they're set
+to empty strings on purpose: git treats an empty identity as unset and refuses to commit
+(`*** Please tell me who you are.`), so a forgotten `--git-name`/`--git-email` fails loudly
+at commit time inside the sandbox rather than silently committing as the wrong person.
 
 ## Path rules
 
