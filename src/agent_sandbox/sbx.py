@@ -50,6 +50,18 @@ class Sbx:
             if result.returncode != 0:
                 raise SandboxError(f"sbx exec git config failed: {result.stderr.strip()}")
 
+    def set_commit_signing(self, name: str, public_key: str) -> None:
+        """Sign commits with ``public_key`` via the forwarded agent; blank, refuses to commit."""
+        settings = [
+            ("gpg.format", "ssh"),
+            ("commit.gpgsign", "true"),
+            ("user.signingkey", f"key::{public_key}" if public_key else ""),
+        ]
+        for key, value in settings:
+            result = self._sbx("exec", name, "git", "config", "--global", key, value)
+            if result.returncode != 0:
+                raise SandboxError(f"sbx exec git config failed: {result.stderr.strip()}")
+
     def agent_fingerprints(self, name: str) -> set[str] | None:
         """Fingerprints of the keys the sandbox's agent offers, or None if no agent reaches it."""
         result = self._sbx("exec", name, "ssh-add", "-l")

@@ -100,6 +100,36 @@ def test_set_git_identity_failure_is_reported(host, sbx):
         sbx.set_git_identity("n", "Dev", "dev@example.com")
 
 
+def test_set_commit_signing(host, sbx):
+    set_format = ("sbx", "exec", "n", "git", "config", "--global", "gpg.format", "ssh")
+    set_gpgsign = ("sbx", "exec", "n", "git", "config", "--global", "commit.gpgsign", "true")
+    set_signingkey = ("sbx", "exec", "n", "git", "config", "--global", "user.signingkey", "key::pub")
+    host.responses = {set_format: 0, set_gpgsign: 0, set_signingkey: 0}
+
+    sbx.set_commit_signing("n", "pub")
+
+    assert host.commands == [set_format, set_gpgsign, set_signingkey]
+
+
+def test_set_commit_signing_blanks_the_signing_key_when_no_public_key_is_given(host, sbx):
+    set_format = ("sbx", "exec", "n", "git", "config", "--global", "gpg.format", "ssh")
+    set_gpgsign = ("sbx", "exec", "n", "git", "config", "--global", "commit.gpgsign", "true")
+    blank_signingkey = ("sbx", "exec", "n", "git", "config", "--global", "user.signingkey", "")
+    host.responses = {set_format: 0, set_gpgsign: 0, blank_signingkey: 0}
+
+    sbx.set_commit_signing("n", "")
+
+    assert host.commands == [set_format, set_gpgsign, blank_signingkey]
+
+
+def test_set_commit_signing_failure_is_reported(host, sbx):
+    set_format = ("sbx", "exec", "n", "git", "config", "--global", "gpg.format", "ssh")
+    host.responses = {set_format: 1}
+
+    with pytest.raises(SandboxError, match="sbx exec git config failed"):
+        sbx.set_commit_signing("n", "pub")
+
+
 def test_agent_fingerprints_of_the_sandboxs_keys(host, sbx):
     host.responses = {LIST: "256 SHA256:aaa key-a (ED25519)\n3072 SHA256:bbb key-b (RSA)\n"}
 

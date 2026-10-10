@@ -1,4 +1,4 @@
-"""agent_sandbox --name NAME --context DIR [--key FILE]... WORKSPACE [-- AGENT_ARGS...]"""
+"""agent_sandbox --name NAME --context DIR [--ssh-key FILE] WORKSPACE [-- AGENT_ARGS...]"""
 
 import argparse
 import os
@@ -26,7 +26,7 @@ class Arguments:
     name: str
     workspace: Path
     context: Path
-    keys: tuple[Path, ...] = ()
+    ssh_key: Path | None = None
     agent_args: tuple[str, ...] = ()
     github_token_file: Path | None = None
     git_name: str | None = None
@@ -40,6 +40,21 @@ class Launch:
     command: tuple[str, ...]
     env: Mapping[str, str]
     notes: tuple[str, ...] = ()
+
+
+class _StoreOnce(argparse.Action):
+    """Like the default store action, but refuses to be given more than once."""
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        if getattr(namespace, self.dest) is not None:
+            parser.error(f"{option_string} may only be given once")
+        setattr(namespace, self.dest, values)
 
 
 def sandbox_name(value: str) -> str:
@@ -68,11 +83,11 @@ def parse_args(argv: Sequence[str]) -> Arguments:
         description=(
             f"Launch a {AGENT} sandbox with its own ssh-agent and a read-only context directory."
         ),
-        usage="%(prog)s --name NAME --context DIR [--key FILE]... WORKSPACE [-- AGENT_ARGS...]",
+        usage="%(prog)s --name NAME --context DIR [--ssh-key FILE] WORKSPACE [-- AGENT_ARGS...]",
         epilog=(
             "example:\n"
             "  agent_sandbox --name myproj-dev --context ./agents/dev \\\n"
-            "                --key ~/.ssh/dev_ed25519 ~/src/myproj -- --continue"
+            "                --ssh-key ~/.ssh/dev_ed25519 ~/src/myproj -- --continue"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -86,8 +101,8 @@ def parse_args(argv: Sequence[str]) -> Arguments:
         help="directory mounted read-only into the sandbox",
     )
     parser.add_argument(
-        "--key", dest="keys", action="append", type=Path, default=[], metavar="FILE",
-        help="private key for the sandbox's ssh-agent; repeat for several",
+        "--ssh-key", dest="ssh_key", action=_StoreOnce, type=Path, default=None, metavar="FILE",
+        help="private key for the sandbox's ssh-agent and commit signing",
     )
     parser.add_argument(
         "--github-token-file", type=Path, default=None, metavar="FILE",
@@ -105,7 +120,7 @@ def parse_args(argv: Sequence[str]) -> Arguments:
     if (parsed.git_name is None) != (parsed.git_email is None):
         parser.error("--git-name and --git-email must be given together")
     return Arguments(
-        parsed.name, parsed.workspace, parsed.context, tuple(parsed.keys), tuple(agent_args),
+        parsed.name, parsed.workspace, parsed.context, parsed.ssh_key, tuple(agent_args),
         parsed.github_token_file, parsed.git_name, parsed.git_email,
     )
 
@@ -114,16 +129,21 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
     """Check everything, set up the sandbox and its agent; return what to run."""
     workspace = existing_dir(args.workspace, "workspace")
     context = existing_dir(args.context, "context")
-    keys = [existing_file(key, "key") for key in args.keys]
-    check_paths(workspace, context, keys)
+    ssh_key = existing_file(args.ssh_key, "ssh key") if args.ssh_key is not None else None
+    check_paths(workspace, context, ssh_key)
     github_token_file = (
         existing_file(args.github_token_file, "github token file")
         if args.github_token_file is not None
         else None
     )
+    public_key = (
+        existing_file(ssh_key.with_name(ssh_key.name + ".pub"), "public key").read_text().strip()
+        if ssh_key is not None
+        else None
+    )
 
     agent.ensure_running()
-    agent.replace_keys(keys)
+    agent.replace_keys([ssh_key] if ssh_key is not None else [])
     loaded = agent.list_keys()
 
     if not sbx.exists(args.name):
@@ -133,12 +153,13 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
     else:
         sbx.clear_github_token(args.name)
     sbx.set_git_identity(args.name, args.git_name or "", args.git_email or "")
+    sbx.set_commit_signing(args.name, public_key or "")
     check_forwarded_keys(fingerprints(loaded), sbx.agent_fingerprints(args.name))
 
     notes = (
         f"ssh-agent: {agent.socket}",
         *(f"key:       {key}" for key in loaded),
-        *([] if loaded else ["warning: the sandbox's agent holds no keys (pass --key)"]),
+        *([] if loaded else ["warning: the sandbox's agent holds no key (pass --ssh-key)"]),
         f"sandbox:   {args.name}",
         f"workspace: {workspace}",
         f"context:   {context} (read-only)",
@@ -146,12 +167,14 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
         "github:    no token (pass --github-token-file to enable gh)",
         f"git:       {args.git_name} <{args.git_email}>" if args.git_name is not None else
         "git:       not configured (pass --git-name/--git-email; commits will fail until set)",
+        "signing:   commits are ssh-signed" if public_key is not None else
+        "signing:   no ssh key (pass --ssh-key; commits will fail until set)",
     )
     command = sbx_run_args(args.name, args.agent_args)
     return Launch(command, agent.env, notes)
 
 
-def check_paths(workspace: Path, context: Path, keys: Sequence[Path]) -> None:
+def check_paths(workspace: Path, context: Path, ssh_key: Path | None) -> None:
     """Refuse layouts that would undo the sandbox's protections."""
     for path, what in [(workspace, "workspace"), (context, "context")]:
         # sbx reads a trailing ":ro" off its path arguments; a ":" in the path is ambiguous.
@@ -160,11 +183,13 @@ def check_paths(workspace: Path, context: Path, keys: Sequence[Path]) -> None:
     # Keep the context's read-only mount independent of the workspace's.
     if overlaps(workspace, context):
         raise SandboxError(f"context {str(context)!r} overlaps workspace {str(workspace)!r}")
-    # A key file the sandbox can read could be copied out, bypassing the agent.
-    for key in keys:
+    # The ssh key the sandbox can read could be copied out, bypassing the agent.
+    if ssh_key is not None:
         for folder, what in [(workspace, "workspace"), (context, "context")]:
-            if key.is_relative_to(folder):
-                raise SandboxError(f"key {str(key)!r} is inside the {what}, readable by the sandbox")
+            if ssh_key.is_relative_to(folder):
+                raise SandboxError(
+                    f"ssh key {str(ssh_key)!r} is inside the {what}, readable by the sandbox"
+                )
 
 
 def existing_dir(path: Path, what: str) -> Path:
