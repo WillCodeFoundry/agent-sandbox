@@ -32,6 +32,16 @@ class Arguments:
     git_name: str | None = None
     git_email: str | None = None
 
+    def __post_init__(self) -> None:
+        # Resolved once here, however Arguments gets built, so nothing downstream
+        # (ensure_paths_safe, prepare) needs to think about resolution at all.
+        object.__setattr__(self, "workspace", self.workspace.resolve())
+        object.__setattr__(self, "context", self.context.resolve())
+        if self.ssh_key is not None:
+            object.__setattr__(self, "ssh_key", self.ssh_key.resolve())
+        if self.github_token_file is not None:
+            object.__setattr__(self, "github_token_file", self.github_token_file.resolve())
+
 
 @dataclass(frozen=True)
 class Launch:
@@ -148,10 +158,10 @@ def parse_args(argv: Sequence[str]) -> Arguments:
 def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launch:
     """Check everything, set up the sandbox and its agent; return what to run."""
     ensure_valid_args(args)
-    workspace = args.workspace.resolve()
-    context = args.context.resolve()
-    ssh_key = args.ssh_key.resolve() if args.ssh_key is not None else None
-    github_token_file = args.github_token_file.resolve() if args.github_token_file is not None else None
+    workspace = args.workspace
+    context = args.context
+    ssh_key = args.ssh_key
+    github_token_file = args.github_token_file
     public_key = ssh_key.with_name(ssh_key.name + ".pub").read_text().strip() if ssh_key is not None else None
 
     agent.ensure_running()
@@ -199,20 +209,22 @@ def ensure_file_exists(path: Path, what: str) -> None:
 
 
 def ensure_paths_safe(workspace: Path, context: Path, ssh_key: Path | None) -> None:
-    """Refuse layouts that would undo the sandbox's protections."""
+    """Refuse layouts that would undo the sandbox's protections.
+
+    workspace, context and ssh_key must already be resolved (Arguments.__post_init__
+    does this), so aliasing through a relative form can't slip past these checks.
+    """
     for path, what in [(workspace, "workspace"), (context, "context")]:
         # sbx reads a trailing ":ro" off its path arguments; a ":" in the path is ambiguous.
         if ":" in str(path):
             raise SandboxError(f"{what} path {str(path)!r} contains ':'")
-    # Keep the context's read-only mount independent of the workspace's. Resolved here so
-    # relative forms that alias the same real directory are still caught.
-    if overlaps(workspace.resolve(), context.resolve()):
+    # Keep the context's read-only mount independent of the workspace's.
+    if overlaps(workspace, context):
         raise SandboxError(f"context {str(context)!r} overlaps workspace {str(workspace)!r}")
     # The ssh key the sandbox can read could be copied out, bypassing the agent.
     if ssh_key is not None:
-        resolved_key = ssh_key.resolve()
         for folder, what in [(workspace, "workspace"), (context, "context")]:
-            if resolved_key.is_relative_to(folder.resolve()):
+            if ssh_key.is_relative_to(folder):
                 raise SandboxError(f"ssh key {str(ssh_key)!r} is inside the {what}, readable by the sandbox")
 
 
