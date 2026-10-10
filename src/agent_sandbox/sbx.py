@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import CommandToExecute, Host
+from agent_sandbox.host import Host
 
 # ssh-add -l exit codes, as seen inside the sandbox
 _HAS_KEYS = 0
@@ -43,24 +43,24 @@ class Sbx:
         if result.returncode != 0:
             raise SandboxError(f"sbx secret rm failed: {result.stderr.strip()}")
 
+    def set_git_config(self, name: str, key: str, value: str) -> None:
+        result = self._sbx("exec", name, "git", "config", "--global", key, value)
+        if result.returncode != 0:
+            raise SandboxError(f"sbx exec git config failed: {result.stderr.strip()}")
+
     def set_git_identity(self, name: str, user_name: str, email: str) -> None:
         """Set the sandbox's global git identity; empty values make git refuse to commit."""
         for key, value in [("user.name", user_name), ("user.email", email)]:
-            result = self._sbx("exec", name, "git", "config", "--global", key, value)
-            if result.returncode != 0:
-                raise SandboxError(f"sbx exec git config failed: {result.stderr.strip()}")
+            self.set_git_config(name, key, value)
 
     def set_commit_signing(self, name: str, public_key: str) -> None:
         """Sign commits with ``public_key`` via the forwarded agent; blank, refuses to commit."""
-        settings = [
+        for key, value in [
             ("gpg.format", "ssh"),
             ("commit.gpgsign", "true"),
             ("user.signingkey", f"key::{public_key}" if public_key else ""),
-        ]
-        for key, value in settings:
-            result = self._sbx("exec", name, "git", "config", "--global", key, value)
-            if result.returncode != 0:
-                raise SandboxError(f"sbx exec git config failed: {result.stderr.strip()}")
+        ]:
+            self.set_git_config(name, key, value)
 
     def agent_fingerprints(self, name: str) -> set[str] | None:
         """Fingerprints of the keys the sandbox's agent offers, or None if no agent reaches it."""
@@ -74,7 +74,7 @@ class Sbx:
         raise SandboxError(f"could not list the sandbox's keys: {result.stderr.strip()}")
 
     def _sbx(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return self._host.run(CommandToExecute(("sbx", *args), env=self._env))
+        return self._host.run(("sbx", *args), env=self._env)
 
 
 def fingerprints(ssh_add_lines: Sequence[str]) -> set[str]:

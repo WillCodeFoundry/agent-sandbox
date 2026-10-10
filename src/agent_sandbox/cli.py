@@ -4,13 +4,13 @@ import argparse
 import os
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from agent_sandbox.config import AGENT, Config
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import CommandToExecute, SubprocessHost
+from agent_sandbox.host import SubprocessHost
 from agent_sandbox.sbx import Sbx, fingerprints, sbx_run_args
 from agent_sandbox.ssh_agent import SshAgent
 
@@ -33,6 +33,15 @@ class Arguments:
     github_token_file: Path | None = None
     git_name: str | None = None
     git_email: str | None = None
+
+
+@dataclass(frozen=True)
+class CommandToExecute:
+    """What to run to attach to the sandbox, and what to tell the user before running it."""
+
+    command: tuple[str, ...]
+    env: Mapping[str, str]
+    message: str = ""
 
 
 class _StoreOnce(argparse.Action):
@@ -269,5 +278,4 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     print(cmd.message, file=sys.stderr)
     # Replace this process with sbx: it gets the terminal, signals and exit code.
-    assert cmd.env is not None  # prepare_sbx_execution always sets it from agent.env
     os.execvpe(cmd.command[0], cmd.command, cmd.env)
