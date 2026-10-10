@@ -8,17 +8,13 @@ from agent_sandbox.errors import SandboxError
 
 
 class Host(Protocol):
-    def run(
-        self, args: Sequence[str], *, env: Mapping[str, str] | None = None
-    ) -> subprocess.CompletedProcess[str]:
+    def run(self, args: Sequence[str], *, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         """Run a command to completion, capturing its output (like subprocess.run)."""
         ...
 
 
 class SubprocessHost:
-    def run(
-        self, args: Sequence[str], *, env: Mapping[str, str] | None = None
-    ) -> subprocess.CompletedProcess[str]:
+    def run(self, args: Sequence[str], *, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         try:
             return subprocess.run(
                 list(args),

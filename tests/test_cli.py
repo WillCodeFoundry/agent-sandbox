@@ -68,21 +68,42 @@ def socket(config: Config) -> Path:
 def ready_host(host):
     """A running, empty agent and an existing sandbox with nothing configured."""
     host.responses = {
-        LIST_KEYS: NO_KEYS, DELETE_ALL: 0, EXISTS: 0, SANDBOX_LIST_KEYS: NO_KEYS, CLEAR_TOKEN: 0,
-        BLANK_GIT_NAME: 0, BLANK_GIT_EMAIL: 0, SET_GPG_FORMAT: 0, SET_GPGSIGN: 0,
+        LIST_KEYS: NO_KEYS,
+        DELETE_ALL: 0,
+        EXISTS: 0,
+        SANDBOX_LIST_KEYS: NO_KEYS,
+        CLEAR_TOKEN: 0,
+        BLANK_GIT_NAME: 0,
+        BLANK_GIT_EMAIL: 0,
+        SET_GPG_FORMAT: 0,
+        SET_GPGSIGN: 0,
         BLANK_SIGNING_KEY: 0,
     }
     return host
 
 
 def run_prepare(
-    host, config, socket, workspace, context, ssh_key=None, agent_args=(),
-    github_token_file=None, git_name=None, git_email=None,
+    host,
+    config,
+    socket,
+    workspace,
+    context,
+    ssh_key=None,
+    agent_args=(),
+    github_token_file=None,
+    git_name=None,
+    git_email=None,
 ):
     agent = SshAgent(host, socket, PERSONAL_ENV, config.uid)
     args = Arguments(
-        NAME, workspace, context, ssh_key, tuple(agent_args), github_token_file,
-        git_name, git_email,
+        NAME,
+        workspace,
+        context,
+        ssh_key,
+        tuple(agent_args),
+        github_token_file,
+        git_name,
+        git_email,
     )
     return prepare(args, config, Sbx(host, agent.env), agent)
 
@@ -99,15 +120,37 @@ def with_ssh_key(host, ssh_key):
 
 
 def test_parses_all_arguments():
-    args = parse_args([
-        "--name", NAME, "--context", "ctx", "--ssh-key", "sk",
-        "--github-token-file", "tok", "--git-name", "Dev", "--git-email", "dev@example.com",
-        "/src/proj", "--", "--continue", "--", "x",
-    ])
+    args = parse_args(
+        [
+            "--name",
+            NAME,
+            "--context",
+            "ctx",
+            "--ssh-key",
+            "sk",
+            "--github-token-file",
+            "tok",
+            "--git-name",
+            "Dev",
+            "--git-email",
+            "dev@example.com",
+            "/src/proj",
+            "--",
+            "--continue",
+            "--",
+            "x",
+        ]
+    )
 
     assert args == Arguments(
-        NAME, Path("/src/proj"), Path("ctx"), Path("sk"), ("--continue", "--", "x"),
-        Path("tok"), "Dev", "dev@example.com",
+        NAME,
+        Path("/src/proj"),
+        Path("ctx"),
+        Path("sk"),
+        ("--continue", "--", "x"),
+        Path("tok"),
+        "Dev",
+        "dev@example.com",
     )
 
 
@@ -117,9 +160,19 @@ def test_ssh_key_is_optional():
 
 def test_ssh_key_may_only_be_given_once():
     with pytest.raises(SystemExit):
-        parse_args([
-            "--name", "n", "--context", "ctx", "--ssh-key", "a", "--ssh-key", "b", "/src/proj",
-        ])
+        parse_args(
+            [
+                "--name",
+                "n",
+                "--context",
+                "ctx",
+                "--ssh-key",
+                "a",
+                "--ssh-key",
+                "b",
+                "/src/proj",
+            ]
+        )
 
 
 def test_github_token_file_is_optional():
@@ -158,9 +211,7 @@ def test_required_arguments(argv):
         parse_args(argv)
 
 
-@pytest.mark.parametrize(
-    "name", ["..", "a/b", ".hidden", "-x", "a b", "a:b", "", "x" * (MAX_NAME_LENGTH + 1)]
-)
+@pytest.mark.parametrize("name", ["..", "a/b", ".hidden", "-x", "a b", "a:b", "", "x" * (MAX_NAME_LENGTH + 1)])
 def test_unsafe_sandbox_names_are_rejected(name):
     with pytest.raises(SystemExit):
         parse_args([f"--name={name}", "--context", "ctx", "/src/proj"])
@@ -225,14 +276,10 @@ def test_warns_when_no_ssh_key_is_given(ready_host, config, socket, workspace, c
 # --- prepare: github token ---------------------------------------------------
 
 
-def test_sets_the_sandboxs_github_token(
-    ready_host, config, socket, workspace, context, github_token_file
-):
+def test_sets_the_sandboxs_github_token(ready_host, config, socket, workspace, context, github_token_file):
     ready_host.responses[SET_TOKEN] = 0
 
-    launch = run_prepare(
-        ready_host, config, socket, workspace, context, github_token_file=github_token_file
-    )
+    launch = run_prepare(ready_host, config, socket, workspace, context, github_token_file=github_token_file)
 
     assert SET_TOKEN in ready_host.commands
     assert CLEAR_TOKEN not in ready_host.commands
@@ -247,9 +294,7 @@ def test_clears_the_sandboxs_github_token_when_not_given(ready_host, config, soc
     assert any("no token" in note for note in launch.notes)
 
 
-def test_github_token_set_failure_is_reported(
-    ready_host, config, socket, workspace, context, github_token_file
-):
+def test_github_token_set_failure_is_reported(ready_host, config, socket, workspace, context, github_token_file):
     ready_host.responses[SET_TOKEN] = 1
 
     with pytest.raises(SandboxError, match="sbx secret set failed"):
@@ -272,9 +317,7 @@ def test_sets_the_sandboxs_git_identity(ready_host, config, socket, workspace, c
     ready_host.responses[set_name] = 0
     ready_host.responses[set_email] = 0
 
-    launch = run_prepare(
-        ready_host, config, socket, workspace, context, git_name="Dev", git_email="dev@example.com"
-    )
+    launch = run_prepare(ready_host, config, socket, workspace, context, git_name="Dev", git_email="dev@example.com")
 
     assert set_name in ready_host.commands
     assert set_email in ready_host.commands
@@ -371,14 +414,21 @@ def test_missing_paths_stop_before_anything_runs(
     host, config, socket, workspace, context, ssh_key, github_token_file, tmp_path, missing, message
 ):
     paths = {
-        "workspace": workspace, "context": context, "ssh_key": ssh_key,
+        "workspace": workspace,
+        "context": context,
+        "ssh_key": ssh_key,
         "github_token_file": github_token_file,
     }
     paths[missing] = tmp_path / "missing"
 
     with pytest.raises(SandboxError, match=message):
         run_prepare(
-            host, config, socket, paths["workspace"], paths["context"], ssh_key=paths["ssh_key"],
+            host,
+            config,
+            socket,
+            paths["workspace"],
+            paths["context"],
+            ssh_key=paths["ssh_key"],
             github_token_file=paths["github_token_file"],
         )
     assert host.calls == []

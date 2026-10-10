@@ -22,9 +22,7 @@ class FakeHost:
         self.responses: dict[tuple[str, ...], Response | list[Response]] = {}
         self.calls: list[tuple[tuple[str, ...], Mapping[str, str] | None]] = []
 
-    def run(
-        self, args: Sequence[str], *, env: Mapping[str, str] | None = None
-    ) -> subprocess.CompletedProcess[str]:
+    def run(self, args: Sequence[str], *, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         command = tuple(args)
         self.calls.append((command, env))
         response = self.responses[command]
