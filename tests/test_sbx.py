@@ -82,6 +82,24 @@ def test_clear_github_token_failure_is_reported(host, sbx):
         sbx.clear_github_token("n")
 
 
+def test_set_git_identity(host, sbx):
+    set_name = ("sbx", "exec", "n", "git", "config", "--global", "user.name", "Dev")
+    set_email = ("sbx", "exec", "n", "git", "config", "--global", "user.email", "dev@example.com")
+    host.responses = {set_name: 0, set_email: 0}
+
+    sbx.set_git_identity("n", "Dev", "dev@example.com")
+
+    assert host.commands == [set_name, set_email]
+
+
+def test_set_git_identity_failure_is_reported(host, sbx):
+    set_name = ("sbx", "exec", "n", "git", "config", "--global", "user.name", "Dev")
+    host.responses = {set_name: 1}
+
+    with pytest.raises(SandboxError, match="sbx exec git config failed"):
+        sbx.set_git_identity("n", "Dev", "dev@example.com")
+
+
 def test_agent_fingerprints_of_the_sandboxs_keys(host, sbx):
     host.responses = {LIST: "256 SHA256:aaa key-a (ED25519)\n3072 SHA256:bbb key-b (RSA)\n"}
 

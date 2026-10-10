@@ -43,6 +43,13 @@ class Sbx:
         if result.returncode != 0:
             raise SandboxError(f"sbx secret rm failed: {result.stderr.strip()}")
 
+    def set_git_identity(self, name: str, user_name: str, email: str) -> None:
+        """Set the sandbox's global git identity; empty values make git refuse to commit."""
+        for key, value in [("user.name", user_name), ("user.email", email)]:
+            result = self._sbx("exec", name, "git", "config", "--global", key, value)
+            if result.returncode != 0:
+                raise SandboxError(f"sbx exec git config failed: {result.stderr.strip()}")
+
     def agent_fingerprints(self, name: str) -> set[str] | None:
         """Fingerprints of the keys the sandbox's agent offers, or None if no agent reaches it."""
         result = self._sbx("exec", name, "ssh-add", "-l")
