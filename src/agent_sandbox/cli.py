@@ -174,19 +174,6 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
     sbx.set_commit_signing(args.name, public_key or "")
     check_forwarded_keys(fingerprints(loaded), sbx.agent_fingerprints(args.name))
 
-    if github_token_file is not None:
-        github_note = "github:    token configured"
-    else:
-        github_note = "github:    no token (pass --github-token-file to enable gh)"
-    if args.git_name is not None:
-        git_note = f"git:       {args.git_name} <{args.git_email}>"
-    else:
-        git_note = "git:       not configured (pass --git-name/--git-email; commits will fail until set)"
-    if public_key is not None:
-        signing_note = "signing:   commits are ssh-signed"
-    else:
-        signing_note = "signing:   no ssh key (pass --ssh-key; commits will fail until set)"
-
     notes = (
         f"ssh-agent: {agent.socket}",
         *(f"key:       {key}" for key in loaded),
@@ -194,9 +181,21 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
         f"sandbox:   {args.name}",
         f"workspace: {workspace}",
         f"context:   {context} (read-only)",
-        github_note,
-        git_note,
-        signing_note,
+        note(
+            github_token_file is not None,
+            "github:    token configured",
+            "github:    no token (pass --github-token-file to enable gh)",
+        ),
+        note(
+            args.git_name is not None,
+            f"git:       {args.git_name} <{args.git_email}>",
+            "git:       not configured (pass --git-name/--git-email; commits will fail until set)",
+        ),
+        note(
+            public_key is not None,
+            "signing:   commits are ssh-signed",
+            "signing:   no ssh key (pass --ssh-key; commits will fail until set)",
+        ),
     )
     command = sbx_run_args(args.name, args.agent_args)
     return Launch(command, agent.env, notes)
@@ -232,6 +231,10 @@ def existing_file(path: Path, what: str) -> Path:
 
 def overlaps(a: Path, b: Path) -> bool:
     return a.is_relative_to(b) or b.is_relative_to(a)
+
+
+def note(enabled: bool, if_true: str, if_false: str) -> str:
+    return if_true if enabled else if_false
 
 
 def check_forwarded_keys(expected: set[str], seen: set[str] | None) -> None:
