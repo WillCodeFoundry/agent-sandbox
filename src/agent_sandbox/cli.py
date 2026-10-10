@@ -28,6 +28,7 @@ class Arguments:
     context: Path
     keys: tuple[Path, ...] = ()
     agent_args: tuple[str, ...] = ()
+    github_token_file: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -86,9 +87,14 @@ def parse_args(argv: Sequence[str]) -> Arguments:
         "--key", dest="keys", action="append", type=Path, default=[], metavar="FILE",
         help="private key for the sandbox's ssh-agent; repeat for several",
     )
+    parser.add_argument(
+        "--github-token-file", type=Path, default=None, metavar="FILE",
+        help="file holding a GitHub token to give the sandbox (enables gh, e.g. to open PRs)",
+    )
     parsed = parser.parse_args(own)
     return Arguments(
-        parsed.name, parsed.workspace, parsed.context, tuple(parsed.keys), tuple(agent_args)
+        parsed.name, parsed.workspace, parsed.context, tuple(parsed.keys), tuple(agent_args),
+        parsed.github_token_file,
     )
 
 
@@ -98,6 +104,11 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
     context = existing_dir(args.context, "context")
     keys = [existing_file(key, "key") for key in args.keys]
     check_paths(workspace, context, keys)
+    github_token_file = (
+        existing_file(args.github_token_file, "github token file")
+        if args.github_token_file is not None
+        else None
+    )
 
     agent.ensure_running()
     agent.replace_keys(keys)
@@ -105,6 +116,10 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
 
     if not sbx.exists(args.name):
         sbx.create(args.name, config.agent, workspace, context)
+    if github_token_file is not None:
+        sbx.set_github_token(args.name, github_token_file.read_text().strip())
+    else:
+        sbx.clear_github_token(args.name)
     check_forwarded_keys(fingerprints(loaded), sbx.agent_fingerprints(args.name))
 
     notes = (
@@ -114,6 +129,8 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
         f"sandbox:   {args.name}",
         f"workspace: {workspace}",
         f"context:   {context} (read-only)",
+        "github:    token configured" if github_token_file is not None else
+        "github:    no token (pass --github-token-file to enable gh)",
     )
     command = sbx_run_args(args.name, args.agent_args)
     return Launch(command, agent.env, notes)
