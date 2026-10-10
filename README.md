@@ -102,4 +102,5 @@ $ uv sync --extra dev
 $ uv run pytest
 $ uv run mypy
 $ uv run ruff check .
+$ uv run ruff format .
 ```

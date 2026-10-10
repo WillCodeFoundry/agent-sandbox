@@ -66,8 +66,7 @@ def sandbox_name(value: str) -> str:
         )
     if not NAME_PATTERN.fullmatch(value):
         raise argparse.ArgumentTypeError(
-            f"invalid sandbox name {value!r} (letters, digits, '.', '+' and '-'; "
-            "must start with a letter or digit)"
+            f"invalid sandbox name {value!r} (letters, digits, '.', '+' and '-'; must start with a letter or digit)"
         )
     return value
 
@@ -80,9 +79,7 @@ def parse_args(argv: Sequence[str]) -> Arguments:
 
     parser = argparse.ArgumentParser(
         prog="agent_sandbox",
-        description=(
-            f"Launch a {AGENT} sandbox with its own ssh-agent and a read-only context directory."
-        ),
+        description=(f"Launch a {AGENT} sandbox with its own ssh-agent and a read-only context directory."),
         usage="%(prog)s --name NAME --context DIR [--ssh-key FILE] WORKSPACE [-- AGENT_ARGS...]",
         epilog=(
             "example:\n"
@@ -93,35 +90,58 @@ def parse_args(argv: Sequence[str]) -> Arguments:
     )
     parser.add_argument("workspace", type=Path, help="project directory to work in")
     parser.add_argument(
-        "--name", required=True, type=sandbox_name,
+        "--name",
+        required=True,
+        type=sandbox_name,
         help="sandbox name; the same name re-attaches to the same sandbox",
     )
     parser.add_argument(
-        "--context", required=True, type=Path, metavar="DIR",
+        "--context",
+        required=True,
+        type=Path,
+        metavar="DIR",
         help="directory mounted read-only into the sandbox",
     )
     parser.add_argument(
-        "--ssh-key", dest="ssh_key", action=_StoreOnce, type=Path, default=None, metavar="FILE",
+        "--ssh-key",
+        dest="ssh_key",
+        action=_StoreOnce,
+        type=Path,
+        default=None,
+        metavar="FILE",
         help="private key for the sandbox's ssh-agent and commit signing",
     )
     parser.add_argument(
-        "--github-token-file", type=Path, default=None, metavar="FILE",
+        "--github-token-file",
+        type=Path,
+        default=None,
+        metavar="FILE",
         help="file holding a GitHub token to give the sandbox (enables gh, e.g. to open PRs)",
     )
     parser.add_argument(
-        "--git-name", default=None, metavar="NAME",
+        "--git-name",
+        default=None,
+        metavar="NAME",
         help="git user.name to set inside the sandbox; requires --git-email",
     )
     parser.add_argument(
-        "--git-email", default=None, metavar="EMAIL",
+        "--git-email",
+        default=None,
+        metavar="EMAIL",
         help="git user.email to set inside the sandbox; requires --git-name",
     )
     parsed = parser.parse_args(own)
     if (parsed.git_name is None) != (parsed.git_email is None):
         parser.error("--git-name and --git-email must be given together")
     return Arguments(
-        parsed.name, parsed.workspace, parsed.context, parsed.ssh_key, tuple(agent_args),
-        parsed.github_token_file, parsed.git_name, parsed.git_email,
+        parsed.name,
+        parsed.workspace,
+        parsed.context,
+        parsed.ssh_key,
+        tuple(agent_args),
+        parsed.github_token_file,
+        parsed.git_name,
+        parsed.git_email,
     )
 
 
@@ -132,9 +152,7 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
     ssh_key = existing_file(args.ssh_key, "ssh key") if args.ssh_key is not None else None
     check_paths(workspace, context, ssh_key)
     github_token_file = (
-        existing_file(args.github_token_file, "github token file")
-        if args.github_token_file is not None
-        else None
+        existing_file(args.github_token_file, "github token file") if args.github_token_file is not None else None
     )
     public_key = (
         existing_file(ssh_key.with_name(ssh_key.name + ".pub"), "public key").read_text().strip()
@@ -163,12 +181,15 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
         f"sandbox:   {args.name}",
         f"workspace: {workspace}",
         f"context:   {context} (read-only)",
-        "github:    token configured" if github_token_file is not None else
-        "github:    no token (pass --github-token-file to enable gh)",
-        f"git:       {args.git_name} <{args.git_email}>" if args.git_name is not None else
-        "git:       not configured (pass --git-name/--git-email; commits will fail until set)",
-        "signing:   commits are ssh-signed" if public_key is not None else
-        "signing:   no ssh key (pass --ssh-key; commits will fail until set)",
+        "github:    token configured"
+        if github_token_file is not None
+        else "github:    no token (pass --github-token-file to enable gh)",
+        f"git:       {args.git_name} <{args.git_email}>"
+        if args.git_name is not None
+        else "git:       not configured (pass --git-name/--git-email; commits will fail until set)",
+        "signing:   commits are ssh-signed"
+        if public_key is not None
+        else "signing:   no ssh key (pass --ssh-key; commits will fail until set)",
     )
     command = sbx_run_args(args.name, args.agent_args)
     return Launch(command, agent.env, notes)
@@ -187,9 +208,7 @@ def check_paths(workspace: Path, context: Path, ssh_key: Path | None) -> None:
     if ssh_key is not None:
         for folder, what in [(workspace, "workspace"), (context, "context")]:
             if ssh_key.is_relative_to(folder):
-                raise SandboxError(
-                    f"ssh key {str(ssh_key)!r} is inside the {what}, readable by the sandbox"
-                )
+                raise SandboxError(f"ssh key {str(ssh_key)!r} is inside the {what}, readable by the sandbox")
 
 
 def existing_dir(path: Path, what: str) -> Path:
