@@ -40,6 +40,13 @@ def key(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def github_token_file(tmp_path: Path) -> Path:
+    path = tmp_path / "gh-token"
+    path.write_text("ghp_abc123\n")
+    return path
+
+
+@pytest.fixture
 def socket(config: Config) -> Path:
     return config.sockets_dir / f"{NAME}.sock"
 
@@ -51,9 +58,11 @@ def ready_host(host):
     return host
 
 
-def run_prepare(host, config, socket, workspace, context, keys=(), agent_args=()):
+def run_prepare(
+    host, config, socket, workspace, context, keys=(), agent_args=(), github_token_file=None
+):
     agent = SshAgent(host, socket, PERSONAL_ENV, config.uid)
-    args = Arguments(NAME, workspace, context, tuple(keys), tuple(agent_args))
+    args = Arguments(NAME, workspace, context, tuple(keys), tuple(agent_args), github_token_file)
     return prepare(args, config, Sbx(host, agent.env), agent)
 
 
@@ -70,16 +79,22 @@ def with_key(host, key):
 def test_parses_all_arguments():
     args = parse_args([
         "--name", NAME, "--context", "ctx", "--key", "k1", "--key", "k2",
-        "/src/proj", "--", "--continue", "--", "x",
+        "--github-token-file", "tok", "/src/proj", "--", "--continue", "--", "x",
     ])
 
     assert args == Arguments(
-        NAME, Path("/src/proj"), Path("ctx"), (Path("k1"), Path("k2")), ("--continue", "--", "x")
+        NAME, Path("/src/proj"), Path("ctx"), (Path("k1"), Path("k2")), ("--continue", "--", "x"),
+        Path("tok"),
     )
 
 
 def test_keys_are_optional():
     assert parse_args(["--name", "n", "--context", "ctx", "/src/proj"]).keys == ()
+
+
+def test_github_token_file_is_optional():
+    args = parse_args(["--name", "n", "--context", "ctx", "/src/proj"])
+    assert args.github_token_file is None
 
 
 @pytest.mark.parametrize(
@@ -159,6 +174,39 @@ def test_warns_when_no_keys_are_given(ready_host, config, socket, workspace, con
     assert any("holds no keys" in note for note in launch.notes)
 
 
+# --- prepare: github token ---------------------------------------------------
+
+
+def test_sets_the_sandboxs_github_token(
+    ready_host, config, socket, workspace, context, github_token_file
+):
+    set_token = ("sbx", "secret", "set", "github", "--sandbox", NAME, "-t", "ghp_abc123")
+    ready_host.responses[set_token] = 0
+
+    launch = run_prepare(
+        ready_host, config, socket, workspace, context, github_token_file=github_token_file
+    )
+
+    assert set_token in ready_host.commands
+    assert any("github" in note for note in launch.notes)
+
+
+def test_no_github_token_is_set_when_not_given(ready_host, config, socket, workspace, context):
+    run_prepare(ready_host, config, socket, workspace, context)
+
+    assert not any(command[:3] == ("sbx", "secret", "set") for command in ready_host.commands)
+
+
+def test_github_token_set_failure_is_reported(
+    ready_host, config, socket, workspace, context, github_token_file
+):
+    set_token = ("sbx", "secret", "set", "github", "--sandbox", NAME, "-t", "ghp_abc123")
+    ready_host.responses[set_token] = 1
+
+    with pytest.raises(SandboxError, match="sbx secret set failed"):
+        run_prepare(ready_host, config, socket, workspace, context, github_token_file=github_token_file)
+
+
 # --- prepare: verifying what the sandbox sees -------------------------------
 
 
@@ -193,16 +241,23 @@ def test_no_agent_in_the_sandbox_is_fine_without_keys(ready_host, config, socket
         ("workspace", "workspace .* is not a directory"),
         ("context", "context .* is not a directory"),
         ("key", "key .* is not a file"),
+        ("github_token_file", "github token file .* is not a file"),
     ],
 )
 def test_missing_paths_stop_before_anything_runs(
-    host, config, socket, workspace, context, key, tmp_path, missing, message
+    host, config, socket, workspace, context, key, github_token_file, tmp_path, missing, message
 ):
-    paths = {"workspace": workspace, "context": context, "key": key}
+    paths = {
+        "workspace": workspace, "context": context, "key": key,
+        "github_token_file": github_token_file,
+    }
     paths[missing] = tmp_path / "missing"
 
     with pytest.raises(SandboxError, match=message):
-        run_prepare(host, config, socket, paths["workspace"], paths["context"], keys=[paths["key"]])
+        run_prepare(
+            host, config, socket, paths["workspace"], paths["context"], keys=[paths["key"]],
+            github_token_file=paths["github_token_file"],
+        )
     assert host.calls == []
 
 

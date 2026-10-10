@@ -33,6 +33,11 @@ class Sbx:
         if result.returncode != 0:
             raise SandboxError(f"sbx create failed: {result.stderr.strip()}")
 
+    def set_github_token(self, name: str, token: str) -> None:
+        result = self._sbx("secret", "set", "github", "--sandbox", name, "-t", token)
+        if result.returncode != 0:
+            raise SandboxError(f"sbx secret set failed: {result.stderr.strip()}")
+
     def agent_fingerprints(self, name: str) -> set[str] | None:
         """Fingerprints of the keys the sandbox's agent offers, or None if no agent reaches it."""
         result = self._sbx("exec", name, "ssh-add", "-l")

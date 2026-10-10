@@ -48,6 +48,23 @@ def test_create_failure_is_reported(host, sbx):
         sbx.create("n", "claude", Path("/w"), Path("/ctx"))
 
 
+def test_set_github_token(host, sbx):
+    set_token = ("sbx", "secret", "set", "github", "--sandbox", "n", "-t", "ghp_abc123")
+    host.responses = {set_token: 0}
+
+    sbx.set_github_token("n", "ghp_abc123")
+
+    assert host.commands == [set_token]
+
+
+def test_set_github_token_failure_is_reported(host, sbx):
+    set_token = ("sbx", "secret", "set", "github", "--sandbox", "n", "-t", "ghp_abc123")
+    host.responses = {set_token: 1}
+
+    with pytest.raises(SandboxError, match="sbx secret set failed"):
+        sbx.set_github_token("n", "ghp_abc123")
+
+
 def test_agent_fingerprints_of_the_sandboxs_keys(host, sbx):
     host.responses = {LIST: "256 SHA256:aaa key-a (ED25519)\n3072 SHA256:bbb key-b (RSA)\n"}
 
