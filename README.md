@@ -4,10 +4,10 @@ Launch a [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (`sbx`) agent
 own SSH agent and a read-only context directory. Each launch:
 
 1. refuses path layouts that would undo the sandbox's protections (see below);
-2. starts (or reuses) an `ssh-agent` dedicated to the sandbox, and makes the keys you
-   pass the only keys it holds;
-3. creates the sandbox if needed, then checks from inside it that it sees exactly those
-   keys, so your personal agent can't have been forwarded;
+2. starts (or reuses) an `ssh-agent` dedicated to the sandbox, and makes the key you pass
+   the only key it holds;
+3. creates the sandbox if needed, then checks from inside it that it sees exactly that
+   key, so your personal agent can't have been forwarded;
 4. runs `sbx run` with only that agent's socket visible, mounting the context directory
    read-only.
 
@@ -21,8 +21,8 @@ $ .venv/bin/pip install -e .
 ## Use
 
 ```console
-$ agent_sandbox --name myproj-dev --context ./agents/dev --key ~/.ssh/dev_ed25519 ~/src/myproj
-$ agent_sandbox --name myproj-dev --context ./agents/dev --key ~/.ssh/dev_ed25519 ~/src/myproj -- --continue
+$ agent_sandbox --name myproj-dev --context ./agents/dev --ssh-key ~/.ssh/dev_ed25519 ~/src/myproj
+$ agent_sandbox --name myproj-dev --context ./agents/dev --ssh-key ~/.ssh/dev_ed25519 ~/src/myproj -- --continue
 ```
 
 | Argument | Meaning |
@@ -30,7 +30,7 @@ $ agent_sandbox --name myproj-dev --context ./agents/dev --key ~/.ssh/dev_ed2551
 | `WORKSPACE` | Project directory the agent works in |
 | `--name` | Sandbox name. The same name re-attaches to the same sandbox. |
 | `--context DIR` | Directory mounted read-only into the sandbox |
-| `--key FILE` | Private key for the sandbox's SSH agent; repeat for several, or omit for none |
+| `--ssh-key FILE` | Private key for the sandbox's SSH agent and for signing commits; omit for none |
 | `--github-token-file FILE` | File holding a GitHub token to give the sandbox (enables `gh`, e.g. to open PRs) |
 | `--git-name NAME` | git `user.name` to set inside the sandbox; requires `--git-email` |
 | `--git-email EMAIL` | git `user.email` to set inside the sandbox; requires `--git-name` |
@@ -41,11 +41,12 @@ workspace or `--context` re-attaches to the existing sandbox with its original m
 Remove it first (`sbx rm NAME`) to change them.
 
 The sandbox's SSH agent listens on `/tmp/sbx-agents-<uid>/<name>.sock`. On every launch it
-is emptied and given exactly the `--key` files, so keys from earlier launches never linger.
-The agent (`claude`) and the sockets directory are set in `src/agent_sandbox/config.py`.
+is emptied and given exactly `--ssh-key` (or nothing, if omitted), so a key from an earlier
+launch never lingers. The agent (`claude`) and the sockets directory are set in
+`src/agent_sandbox/config.py`.
 
 The sandbox's `github` secret is kept in sync with `--github-token-file` on every launch,
-the same way the ssh-agent's keys are kept in sync with `--key`: given, it's set to the
+the same way the ssh-agent's key is kept in sync with `--ssh-key`: given, it's set to the
 file's contents (`sbx secret set github --sandbox NAME -t TOKEN`), so this is also how an
 existing sandbox's token gets rotated; omitted, it's cleared (`sbx secret rm github
 --sandbox NAME -f`), so a token from an earlier launch never lingers. The token is scoped
@@ -57,14 +58,22 @@ to empty strings on purpose: git treats an empty identity as unset and refuses t
 (`*** Please tell me who you are.`), so a forgotten `--git-name`/`--git-email` fails loudly
 at commit time inside the sandbox rather than silently committing as the wrong person.
 
+Commits are always configured to be SSH-signed (`gpg.format ssh`, `commit.gpgsign true`),
+using `--ssh-key`'s matching `.pub` file (read by naming convention: `KEY` pairs with
+`KEY.pub`) as `user.signingkey`. The private key itself never needs to be readable inside
+the sandbox — signing happens through the forwarded agent, the same way authentication
+does. Without `--ssh-key`, `user.signingkey` is blanked on purpose: with no signing key,
+git refuses to commit (`error: user.signingkey needs to be set for ssh signing`), so a
+sandbox without a key fails loudly at commit time instead of committing unsigned.
+
 ## Path rules
 
 The launch is refused when:
 
 - the workspace and `--context` overlap (one inside the other, or the same directory): this
   keeps the context's read-only mount independent of the workspace's;
-- a `--key` file is inside the workspace or the context: the sandbox could read it and copy
-  the private key out, bypassing the agent;
+- the `--ssh-key` file is inside the workspace or the context: the sandbox could read it
+  and copy the private key out, bypassing the agent;
 - the workspace or context path contains `:`, which sbx would confuse with its `:ro` suffix.
 
 ## sbx settings and caveats
