@@ -18,8 +18,8 @@ def socket(tmp_path):
 
 @pytest.fixture
 def make_agent(host, socket):
-    def make_agent(uid=os.getuid()):
-        return SshAgent(host, socket, PERSONAL_ENV, uid)
+    def make_agent(uid=None):
+        return SshAgent(host, socket, PERSONAL_ENV, os.getuid() if uid is None else uid)
 
     return make_agent
 

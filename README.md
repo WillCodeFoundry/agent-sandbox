@@ -14,15 +14,14 @@ own SSH agent and a read-only context directory. Each launch:
 ## Install
 
 ```console
-$ python -m venv .venv
-$ .venv/bin/pip install -e .
+$ uv sync
 ```
 
 ## Use
 
 ```console
-$ agent_sandbox --name myproj-dev --context ./agents/dev --ssh-key ~/.ssh/dev_ed25519 ~/src/myproj
-$ agent_sandbox --name myproj-dev --context ./agents/dev --ssh-key ~/.ssh/dev_ed25519 ~/src/myproj -- --continue
+$ uv run agent_sandbox --name myproj-dev --context ./agents/dev --ssh-key ~/.ssh/dev_ed25519 ~/src/myproj
+$ uv run agent_sandbox --name myproj-dev --context ./agents/dev --ssh-key ~/.ssh/dev_ed25519 ~/src/myproj -- --continue
 ```
 
 | Argument | Meaning |
@@ -99,7 +98,8 @@ $ sbx daemon restart
 ## Development
 
 ```console
-$ .venv/bin/pip install -e '.[dev]'
-$ .venv/bin/pytest
-$ .venv/bin/mypy
+$ uv sync --extra dev
+$ uv run pytest
+$ uv run mypy
+$ uv run ruff check .
 ```
