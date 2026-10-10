@@ -174,6 +174,19 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
     sbx.set_commit_signing(args.name, public_key or "")
     check_forwarded_keys(fingerprints(loaded), sbx.agent_fingerprints(args.name))
 
+    if github_token_file is not None:
+        github_note = "github:    token configured"
+    else:
+        github_note = "github:    no token (pass --github-token-file to enable gh)"
+    if args.git_name is not None:
+        git_note = f"git:       {args.git_name} <{args.git_email}>"
+    else:
+        git_note = "git:       not configured (pass --git-name/--git-email; commits will fail until set)"
+    if public_key is not None:
+        signing_note = "signing:   commits are ssh-signed"
+    else:
+        signing_note = "signing:   no ssh key (pass --ssh-key; commits will fail until set)"
+
     notes = (
         f"ssh-agent: {agent.socket}",
         *(f"key:       {key}" for key in loaded),
@@ -181,15 +194,9 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
         f"sandbox:   {args.name}",
         f"workspace: {workspace}",
         f"context:   {context} (read-only)",
-        "github:    token configured"
-        if github_token_file is not None
-        else "github:    no token (pass --github-token-file to enable gh)",
-        f"git:       {args.git_name} <{args.git_email}>"
-        if args.git_name is not None
-        else "git:       not configured (pass --git-name/--git-email; commits will fail until set)",
-        "signing:   commits are ssh-signed"
-        if public_key is not None
-        else "signing:   no ssh key (pass --ssh-key; commits will fail until set)",
+        github_note,
+        git_note,
+        signing_note,
     )
     command = sbx_run_args(args.name, args.agent_args)
     return Launch(command, agent.env, notes)
