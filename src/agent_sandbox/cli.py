@@ -147,18 +147,12 @@ def parse_args(argv: Sequence[str]) -> Arguments:
 
 def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launch:
     """Check everything, set up the sandbox and its agent; return what to run."""
-    workspace = existing_dir(args.workspace, "workspace")
-    context = existing_dir(args.context, "context")
-    ssh_key = existing_file(args.ssh_key, "ssh key") if args.ssh_key is not None else None
-    check_paths(workspace, context, ssh_key)
-    github_token_file = (
-        existing_file(args.github_token_file, "github token file") if args.github_token_file is not None else None
-    )
-    public_key = (
-        existing_file(ssh_key.with_name(ssh_key.name + ".pub"), "public key").read_text().strip()
-        if ssh_key is not None
-        else None
-    )
+    ensure_valid_args(args)
+    workspace = args.workspace.resolve()
+    context = args.context.resolve()
+    ssh_key = args.ssh_key.resolve() if args.ssh_key is not None else None
+    github_token_file = args.github_token_file.resolve() if args.github_token_file is not None else None
+    public_key = ssh_key.with_name(ssh_key.name + ".pub").read_text().strip() if ssh_key is not None else None
 
     agent.ensure_running()
     agent.replace_keys([ssh_key] if ssh_key is not None else [])
@@ -194,32 +188,45 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
     return Launch(command, agent.env, notes)
 
 
-def check_paths(workspace: Path, context: Path, ssh_key: Path | None) -> None:
+def ensure_dir_exists(path: Path, what: str) -> None:
+    if not path.is_dir():
+        raise SandboxError(f"{what} {str(path)!r} is not a directory")
+
+
+def ensure_file_exists(path: Path, what: str) -> None:
+    if not path.is_file():
+        raise SandboxError(f"{what} {str(path)!r} is not a file")
+
+
+def ensure_paths_safe(workspace: Path, context: Path, ssh_key: Path | None) -> None:
     """Refuse layouts that would undo the sandbox's protections."""
     for path, what in [(workspace, "workspace"), (context, "context")]:
         # sbx reads a trailing ":ro" off its path arguments; a ":" in the path is ambiguous.
         if ":" in str(path):
             raise SandboxError(f"{what} path {str(path)!r} contains ':'")
-    # Keep the context's read-only mount independent of the workspace's.
-    if overlaps(workspace, context):
+    # Keep the context's read-only mount independent of the workspace's. Resolved here so
+    # relative forms that alias the same real directory are still caught.
+    if overlaps(workspace.resolve(), context.resolve()):
         raise SandboxError(f"context {str(context)!r} overlaps workspace {str(workspace)!r}")
     # The ssh key the sandbox can read could be copied out, bypassing the agent.
     if ssh_key is not None:
+        resolved_key = ssh_key.resolve()
         for folder, what in [(workspace, "workspace"), (context, "context")]:
-            if ssh_key.is_relative_to(folder):
+            if resolved_key.is_relative_to(folder.resolve()):
                 raise SandboxError(f"ssh key {str(ssh_key)!r} is inside the {what}, readable by the sandbox")
 
 
-def existing_dir(path: Path, what: str) -> Path:
-    if not path.is_dir():
-        raise SandboxError(f"{what} {str(path)!r} is not a directory")
-    return path.resolve()
-
-
-def existing_file(path: Path, what: str) -> Path:
-    if not path.is_file():
-        raise SandboxError(f"{what} {str(path)!r} is not a file")
-    return path.resolve()
+def ensure_valid_args(args: Arguments) -> None:
+    """Raise if anything about args would undo the sandbox's protections or doesn't exist."""
+    ensure_dir_exists(args.workspace, "workspace")
+    ensure_dir_exists(args.context, "context")
+    if args.ssh_key is not None:
+        ensure_file_exists(args.ssh_key, "ssh key")
+    ensure_paths_safe(args.workspace, args.context, args.ssh_key)
+    if args.github_token_file is not None:
+        ensure_file_exists(args.github_token_file, "github token file")
+    if args.ssh_key is not None:
+        ensure_file_exists(args.ssh_key.with_name(args.ssh_key.name + ".pub"), "public key")
 
 
 def overlaps(a: Path, b: Path) -> bool:
