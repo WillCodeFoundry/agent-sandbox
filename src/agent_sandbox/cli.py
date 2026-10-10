@@ -81,7 +81,7 @@ def parse_args(argv: Sequence[str]) -> Arguments:
 
     parser = argparse.ArgumentParser(
         prog="agent_sandbox",
-        description=(f"Launch a {AGENT} sandbox with its own ssh-agent and a read-only context directory."),
+        description=f"Launch a {AGENT} sandbox with its own ssh-agent and a read-only context directory.",
         usage="%(prog)s --name NAME --context DIR [--ssh-key FILE] WORKSPACE [-- AGENT_ARGS...]",
         epilog=(
             "example:\n"
@@ -136,49 +136,59 @@ def parse_args(argv: Sequence[str]) -> Arguments:
     if (parsed.git_name is None) != (parsed.git_email is None):
         parser.error("--git-name and --git-email must be given together")
     return Arguments(
-        parsed.name,
-        parsed.workspace.resolve(),
-        parsed.context.resolve(),
-        parsed.ssh_key.resolve() if parsed.ssh_key is not None else None,
-        tuple(agent_args),
-        parsed.github_token_file.resolve() if parsed.github_token_file is not None else None,
-        parsed.git_name,
-        parsed.git_email,
+        name=parsed.name,
+        workspace=parsed.workspace.resolve(),
+        context=parsed.context.resolve(),
+        ssh_key=parsed.ssh_key.resolve() if parsed.ssh_key is not None else None,
+        agent_args=tuple(agent_args),
+        github_token_file=parsed.github_token_file.resolve() if parsed.github_token_file is not None else None,
+        git_name=parsed.git_name,
+        git_email=parsed.git_email,
     )
 
 
 def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launch:
-    """Check everything, set up the sandbox and its agent; return what to run."""
+    """Validate args, synchronize the sandbox, and describe what to run."""
     ensure_valid_args(args)
-    workspace = args.workspace
-    context = args.context
+    loaded, public_key = apply(args, config, sbx, agent)
+    notes = describe(args, agent, loaded, public_key)
+    command = sbx_run_args(args.name, args.agent_args)
+    return Launch(command, agent.env, notes)
+
+
+def apply(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> tuple[list[str], str | None]:
+    """Make the sandbox and its agent match args; return the agent's keys and signing key."""
     ssh_key = args.ssh_key
-    github_token_file = args.github_token_file
-    public_key = ssh_key.with_name(ssh_key.name + ".pub").read_text().strip() if ssh_key is not None else None
+    public_key = public_key_path(ssh_key).read_text().strip() if ssh_key is not None else None
 
     agent.ensure_running()
     agent.replace_keys([ssh_key] if ssh_key is not None else [])
     loaded = agent.list_keys()
 
     if not sbx.exists(args.name):
-        sbx.create(args.name, config.agent, workspace, context)
-    if github_token_file is not None:
-        sbx.set_github_token(args.name, github_token_file.read_text().strip())
+        sbx.create(args.name, config.agent, args.workspace, args.context)
+    if args.github_token_file is not None:
+        sbx.set_github_token(args.name, args.github_token_file.read_text().strip())
     else:
         sbx.clear_github_token(args.name)
     sbx.set_git_identity(args.name, args.git_name or "", args.git_email or "")
     sbx.set_commit_signing(args.name, public_key or "")
     check_forwarded_keys(fingerprints(loaded), sbx.agent_fingerprints(args.name))
 
+    return loaded, public_key
+
+
+def describe(args: Arguments, agent: SshAgent, loaded: list[str], public_key: str | None) -> tuple[str, ...]:
+    """Build the notes describing what apply() just did."""
     # fmt: off
-    notes = (
+    return (
         f"ssh-agent: {agent.socket}",
         *(f"key:       {key}" for key in loaded),
         *([] if loaded else ["warning: the sandbox's agent holds no key (pass --ssh-key)"]),
         f"sandbox:   {args.name}",
-        f"workspace: {workspace}",
-        f"context:   {context} (read-only)",
-        "github:    token configured" if github_token_file is not None else
+        f"workspace: {args.workspace}",
+        f"context:   {args.context} (read-only)",
+        "github:    token configured" if args.github_token_file is not None else
         "github:    no token (pass --github-token-file to enable gh)",
         f"git:       {args.git_name} <{args.git_email}>" if args.git_name is not None else
         "git:       not configured (pass --git-name/--git-email; commits will fail until set)",
@@ -186,8 +196,11 @@ def prepare(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> Launc
         "signing:   no ssh key (pass --ssh-key; commits will fail until set)",
     )
     # fmt: on
-    command = sbx_run_args(args.name, args.agent_args)
-    return Launch(command, agent.env, notes)
+
+
+def public_key_path(ssh_key: Path) -> Path:
+    """Where ssh-keygen puts the public half of a private key, by naming convention."""
+    return ssh_key.with_name(ssh_key.name + ".pub")
 
 
 def ensure_dir_exists(path: Path, what: str) -> None:
@@ -230,7 +243,7 @@ def ensure_valid_args(args: Arguments) -> None:
     if args.github_token_file is not None:
         ensure_file_exists(args.github_token_file, "github token file")
     if args.ssh_key is not None:
-        ensure_file_exists(args.ssh_key.with_name(args.ssh_key.name + ".pub"), "public key")
+        ensure_file_exists(public_key_path(args.ssh_key), "public key")
 
 
 def overlaps(a: Path, b: Path) -> bool:

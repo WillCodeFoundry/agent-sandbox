@@ -96,14 +96,14 @@ def run_prepare(
 ):
     agent = SshAgent(host, socket, PERSONAL_ENV, config.uid)
     args = Arguments(
-        NAME,
-        workspace,
-        context,
-        ssh_key,
-        tuple(agent_args),
-        github_token_file,
-        git_name,
-        git_email,
+        name=NAME,
+        workspace=workspace,
+        context=context,
+        ssh_key=ssh_key,
+        agent_args=tuple(agent_args),
+        github_token_file=github_token_file,
+        git_name=git_name,
+        git_email=git_email,
     )
     return prepare(args, config, Sbx(host, agent.env), agent)
 
@@ -143,14 +143,14 @@ def test_parses_all_arguments():
     )
 
     assert args == Arguments(
-        NAME,
-        Path("/src/proj").resolve(),
-        Path("ctx").resolve(),
-        Path("sk").resolve(),
-        ("--continue", "--", "x"),
-        Path("tok").resolve(),
-        "Dev",
-        "dev@example.com",
+        name=NAME,
+        workspace=Path("/src/proj").resolve(),
+        context=Path("ctx").resolve(),
+        ssh_key=Path("sk").resolve(),
+        agent_args=("--continue", "--", "x"),
+        github_token_file=Path("tok").resolve(),
+        git_name="Dev",
+        git_email="dev@example.com",
     )
 
 
