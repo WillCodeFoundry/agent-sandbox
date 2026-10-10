@@ -144,11 +144,11 @@ def test_parses_all_arguments():
 
     assert args == Arguments(
         NAME,
-        Path("/src/proj"),
-        Path("ctx"),
-        Path("sk"),
+        Path("/src/proj").resolve(),
+        Path("ctx").resolve(),
+        Path("sk").resolve(),
         ("--continue", "--", "x"),
-        Path("tok"),
+        Path("tok").resolve(),
         "Dev",
         "dev@example.com",
     )

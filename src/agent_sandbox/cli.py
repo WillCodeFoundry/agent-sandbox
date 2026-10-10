@@ -23,6 +23,8 @@ MAX_NAME_LENGTH = 64
 
 @dataclass(frozen=True)
 class Arguments:
+    """workspace, context, ssh_key and github_token_file are always resolved paths."""
+
     name: str
     workspace: Path
     context: Path
@@ -31,16 +33,6 @@ class Arguments:
     github_token_file: Path | None = None
     git_name: str | None = None
     git_email: str | None = None
-
-    def __post_init__(self) -> None:
-        # Resolved once here, however Arguments gets built, so nothing downstream
-        # (ensure_paths_safe, prepare) needs to think about resolution at all.
-        object.__setattr__(self, "workspace", self.workspace.resolve())
-        object.__setattr__(self, "context", self.context.resolve())
-        if self.ssh_key is not None:
-            object.__setattr__(self, "ssh_key", self.ssh_key.resolve())
-        if self.github_token_file is not None:
-            object.__setattr__(self, "github_token_file", self.github_token_file.resolve())
 
 
 @dataclass(frozen=True)
@@ -145,11 +137,11 @@ def parse_args(argv: Sequence[str]) -> Arguments:
         parser.error("--git-name and --git-email must be given together")
     return Arguments(
         parsed.name,
-        parsed.workspace,
-        parsed.context,
-        parsed.ssh_key,
+        parsed.workspace.resolve(),
+        parsed.context.resolve(),
+        parsed.ssh_key.resolve() if parsed.ssh_key is not None else None,
         tuple(agent_args),
-        parsed.github_token_file,
+        parsed.github_token_file.resolve() if parsed.github_token_file is not None else None,
         parsed.git_name,
         parsed.git_email,
     )
@@ -211,8 +203,8 @@ def ensure_file_exists(path: Path, what: str) -> None:
 def ensure_paths_safe(workspace: Path, context: Path, ssh_key: Path | None) -> None:
     """Refuse layouts that would undo the sandbox's protections.
 
-    workspace, context and ssh_key must already be resolved (Arguments.__post_init__
-    does this), so aliasing through a relative form can't slip past these checks.
+    workspace, context and ssh_key must already be resolved, so aliasing through a
+    relative form can't slip past these checks.
     """
     for path, what in [(workspace, "workspace"), (context, "context")]:
         # sbx reads a trailing ":ro" off its path arguments; a ":" in the path is ambiguous.
