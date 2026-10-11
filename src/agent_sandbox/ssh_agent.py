@@ -1,7 +1,7 @@
 """A dedicated ssh-agent per sandbox, reachable at a fixed socket path."""
 
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 
 from agent_sandbox.errors import SandboxError
@@ -15,21 +15,21 @@ _NO_KEYS = 1
 class SshAgent:
     """An ssh-agent bound to ``socket``, reused across launches of one sandbox."""
 
-    def __init__(self, host: HostPort, socket: Path, environ: Mapping[str, str], uid: int) -> None:
+    def __init__(self, host: HostPort, socket: Path) -> None:
         self._host = host
-        self._uid = uid
-        self._environ = environ
         self.socket = socket
 
     def ensure_running(self) -> None:
-        """Start the agent unless one already answers on the socket."""
-        # Check the directory before talking to anything in it: a socket in a
-        # directory someone else controls could be their agent, not ours.
-        self._host.ensure_private_dir(self.socket.parent, self._uid)
+        """Start the agent unless one already answers on the socket.
+
+        The caller must have already made ``socket``'s directory private to
+        this user - a socket in a directory someone else controls could be
+        their agent, not ours.
+        """
         if self._is_running():
             return
 
-        self._host.remove_file(self.socket)  # stale socket from a dead agent
+        self._host.reset_socket(self.socket)  # stale socket from a dead agent
         # The env script ssh-agent prints is ignored on purpose: nothing in
         # this process should start using the sandbox's agent by accident.
         result = self._host.run(("ssh-agent", "-a", str(self.socket), "-s"))
@@ -59,7 +59,8 @@ class SshAgent:
 
     def _ssh_add(self, *args: str) -> subprocess.CompletedProcess[str]:
         # ssh-add only needs to find itself and reach the right agent - nothing else.
+        environ = self._host.environ()
         env = {"SSH_AUTH_SOCK": str(self.socket)}
-        if "PATH" in self._environ:
-            env["PATH"] = self._environ["PATH"]
+        if "PATH" in environ:
+            env["PATH"] = environ["PATH"]
         return self._host.run(("ssh-add", *args), env=env)

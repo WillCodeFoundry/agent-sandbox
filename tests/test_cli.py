@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 import pytest
@@ -63,7 +62,7 @@ def github_token_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def socket(config: Config, host: HostPort) -> Path:
-    return host.socket_path(config.sockets_dir, NAME, os.getuid())
+    return host.socket_path(config.sockets_dir, NAME)
 
 
 @pytest.fixture
@@ -96,8 +95,9 @@ def run_prepare(
     git_name=None,
     git_email=None,
 ):
-    agent = SshAgent(host, socket, PERSONAL_ENV, os.getuid())
-    env = Sbx.env(PERSONAL_ENV, socket)
+    host.environ_value = PERSONAL_ENV
+    ssh_agent = SshAgent(host, socket)
+    env = Sbx.env(host.environ(), socket)
     args = Arguments(
         name=NAME,
         workspace=workspace,
@@ -109,13 +109,13 @@ def run_prepare(
         git_email=git_email,
     )
     ensure_valid_args(args, host)
-    return prepare_sbx_execution(args, config, Sbx(host, env), agent, env, host)
+    return prepare_sbx_execution(args, config, Sbx(host, env), ssh_agent, env)
 
 
 def with_ssh_key(host, ssh_key):
     """The agent holds ``ssh_key``, the sandbox sees it, and can sign commits with it."""
     host.responses[("ssh-add", "-q", str(ssh_key))] = 0
-    host.responses[LIST_KEYS] = [NO_KEYS, KEY_LINE]
+    host.responses[LIST_KEYS] = [NO_KEYS, KEY_LINE, KEY_LINE]
     host.responses[SANDBOX_LIST_KEYS] = KEY_LINE
     host.responses[signing_key_command(PUBLIC_KEY)] = 0
 

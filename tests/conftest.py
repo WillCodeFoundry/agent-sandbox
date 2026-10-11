@@ -1,3 +1,4 @@
+import os
 import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -25,15 +26,17 @@ class FakeHost(Host):
     A response is stdout (str, exit 0), an exit code (int), or a list of
     those, used in turn. An unexpected command raises KeyError.
 
-    Only ``run``/``exec`` are faked. Everything else (filesystem safety
-    checks, path naming) is inherited from the real ``Host`` unchanged:
-    there's nothing worth faking about them, and tests assert on the real
-    directory/file state they leave behind.
+    Only ``run``/``exec``/``environ`` are faked. Everything else (filesystem
+    safety checks, path naming) is inherited from the real ``Host``
+    unchanged: there's nothing worth faking about them, and tests assert on
+    the real directory/file state they leave behind.
     """
 
     def __init__(self) -> None:
+        super().__init__(os.getuid())
         self.responses: dict[tuple[str, ...], Response | list[Response]] = {}
         self.calls: list[tuple[tuple[str, ...], Mapping[str, str] | None]] = []
+        self.environ_value: Mapping[str, str] = {}
 
     def run(self, cmd: Sequence[str], *, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         command = tuple(cmd)
@@ -47,6 +50,9 @@ class FakeHost(Host):
 
     def exec(self, cmd: Sequence[str], env: Mapping[str, str]) -> NoReturn:
         raise ExecCalled(tuple(cmd), env)
+
+    def environ(self) -> Mapping[str, str]:
+        return self.environ_value
 
     @property
     def commands(self) -> list[tuple[str, ...]]:

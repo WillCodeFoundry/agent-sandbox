@@ -1,5 +1,3 @@
-import os
-
 import pytest
 
 from agent_sandbox.errors import SandboxError
@@ -18,7 +16,8 @@ def socket(tmp_path):
 
 @pytest.fixture
 def make_agent(host, socket):
-    return lambda uid=None: SshAgent(host, socket, PERSONAL_ENV, os.getuid() if uid is None else uid)
+    host.environ_value = PERSONAL_ENV
+    return lambda: SshAgent(host, socket)
 
 
 def start(socket):
@@ -71,21 +70,6 @@ def test_reports_an_agent_that_fails_to_start(host, make_agent, socket, start_ex
 
     with pytest.raises(SandboxError, match="ssh-agent failed to start"):
         make_agent().ensure_running()
-
-
-def test_makes_the_sockets_dir_private(host, make_agent, socket):
-    host.responses = {LIST: NO_KEYS}
-
-    make_agent().ensure_running()
-
-    assert socket.parent.stat().st_mode & 0o777 == 0o700
-
-
-def test_does_not_talk_to_a_socket_in_someone_elses_dir(host, make_agent):
-    with pytest.raises(SandboxError, match="not a directory owned by you"):
-        make_agent(uid=os.getuid() + 1).ensure_running()
-
-    assert host.calls == []
 
 
 # --- keys -------------------------------------------------------------------

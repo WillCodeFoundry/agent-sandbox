@@ -19,20 +19,20 @@ class HostPort(Protocol):
         """Replace the current process with cmd (like os.execvpe)."""
         ...
 
-    def ensure_private_dir(self, path: Path, uid: int) -> None:
-        """Create path as a directory only uid can use; raise if it isn't one."""
+    def environ(self) -> Mapping[str, str]:
+        """This process's own environment."""
         ...
 
-    def remove_file(self, path: Path) -> None:
-        """Delete path if it exists."""
+    def ensure_private_dir(self, path: Path) -> None:
+        """Create path as a directory only this user can use; raise if it isn't one."""
         ...
 
-    def socket_path(self, sockets_dir: Path, name: str, uid: int) -> Path:
-        """The ssh-agent socket for sandbox ``name``, under a directory private to ``uid``."""
+    def reset_socket(self, path: Path) -> None:
+        """Make path ready for a fresh ssh-agent: private parent dir, no leftover socket file."""
         ...
 
-    def public_key_path(self, ssh_key: Path) -> Path:
-        """Where ssh-keygen puts the public half of a private key, by naming convention."""
+    def socket_path(self, sockets_dir: Path, name: str) -> Path:
+        """The ssh-agent socket for sandbox ``name``, under a directory private to this user."""
         ...
 
     def ensure_dir_exists(self, path: Path, what: str) -> None:
@@ -43,16 +43,11 @@ class HostPort(Protocol):
         """Raise if path is not a file."""
         ...
 
-    def contains(self, folder: Path, path: Path) -> bool:
-        """Whether path is folder itself or somewhere inside it."""
-        ...
-
-    def is_nested_dir(self, a: Path, b: Path) -> bool:
-        """Whether a and b are the same path, or one is nested inside the other."""
-        ...
-
 
 class Host:
+    def __init__(self, uid: int) -> None:
+        self._uid = uid
+
     def run(self, cmd: Sequence[str], *, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         try:
             return subprocess.run(
@@ -67,8 +62,11 @@ class Host:
     def exec(self, cmd: Sequence[str], env: Mapping[str, str]) -> NoReturn:
         os.execvpe(cmd[0], list(cmd), dict(env))
 
-    def ensure_private_dir(self, path: Path, uid: int) -> None:
-        """Create path as a directory only uid can use, refusing one we don't own.
+    def environ(self) -> Mapping[str, str]:
+        return os.environ
+
+    def ensure_private_dir(self, path: Path) -> None:
+        """Create path as a directory only this user can use, refusing one we don't own.
 
         The sockets directory lives in /tmp, which is shared: another user could
         create it first, or put a symlink there pointing somewhere they control.
@@ -76,21 +74,19 @@ class Host:
         try:
             path.mkdir(mode=0o700, exist_ok=True)
             info = os.lstat(path)
-            ours = stat.S_ISDIR(info.st_mode) and info.st_uid == uid
+            ours = stat.S_ISDIR(info.st_mode) and info.st_uid == self._uid
         except FileExistsError:  # a file, or a dangling symlink
             ours = False
         if not ours:
             raise SandboxError(f"{path} is not a directory owned by you")
         path.chmod(0o700)
 
-    def remove_file(self, path: Path) -> None:
+    def reset_socket(self, path: Path) -> None:
+        self.ensure_private_dir(path.parent)
         path.unlink(missing_ok=True)
 
-    def socket_path(self, sockets_dir: Path, name: str, uid: int) -> Path:
-        return sockets_dir.with_name(f"{sockets_dir.name}-{uid}") / f"{name}.sock"
-
-    def public_key_path(self, ssh_key: Path) -> Path:
-        return ssh_key.with_name(ssh_key.name + ".pub")
+    def socket_path(self, sockets_dir: Path, name: str) -> Path:
+        return sockets_dir.with_name(f"{sockets_dir.name}-{self._uid}") / f"{name}.sock"
 
     def ensure_dir_exists(self, path: Path, what: str) -> None:
         if not path.is_dir():
@@ -99,9 +95,3 @@ class Host:
     def ensure_file_exists(self, path: Path, what: str) -> None:
         if not path.is_file():
             raise SandboxError(f"{what} {str(path)!r} is not a file")
-
-    def contains(self, folder: Path, path: Path) -> bool:
-        return path.is_relative_to(folder)
-
-    def is_nested_dir(self, a: Path, b: Path) -> bool:
-        return self.contains(a, b) or self.contains(b, a)
