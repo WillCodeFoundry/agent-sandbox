@@ -11,7 +11,7 @@ from pathlib import Path
 from agent_sandbox.config import AGENT, Config
 from agent_sandbox.errors import SandboxError
 from agent_sandbox.host import Host, socket_path
-from agent_sandbox.sbx import Sbx, fingerprints, sbx_run_args
+from agent_sandbox.sbx import Sbx, fingerprints, sbx_env, sbx_run_args
 from agent_sandbox.ssh_agent import SshAgent
 
 # What sbx accepts in a sandbox name, starting with a letter or digit. The name
@@ -147,12 +147,17 @@ def parse_args(argv: Sequence[str]) -> Arguments:
     )
 
 
-def prepare_sbx_execution(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> CommandToExecute:
-    """Synchronize the sandbox and describe what running it will do. Call ensure_valid_args(args) first."""
+def prepare_sbx_execution(
+    args: Arguments, config: Config, sbx: Sbx, agent: SshAgent, env: Mapping[str, str]
+) -> CommandToExecute:
+    """Synchronize the sandbox and describe what running it will do. Call ensure_valid_args(args) first.
+
+    ``env`` is what the final command runs under; it must be what ``sbx`` was built with.
+    """
     loaded, public_key = apply(args, config, sbx, agent)
     message = describe(args, agent, loaded, public_key)
     command = sbx_run_args(args.name, args.agent_args)
-    return CommandToExecute(command, env=agent.env, message=message)
+    return CommandToExecute(command, env=env, message=message)
 
 
 def apply(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> tuple[list[str], str | None]:
@@ -274,10 +279,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = Config.default()
     uid = os.getuid()
     host = Host()
-    agent = SshAgent(host, socket_path(config.sockets_dir, args.name, uid), os.environ, uid)
+    socket = socket_path(config.sockets_dir, args.name, uid)
+    agent = SshAgent(host, socket, os.environ, uid)
+    env = sbx_env(os.environ, socket)
     try:
         ensure_valid_args(args)
-        cmd = prepare_sbx_execution(args, config, Sbx(host, agent.env), agent)
+        cmd = prepare_sbx_execution(args, config, Sbx(host, env), agent, env)
     except SandboxError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

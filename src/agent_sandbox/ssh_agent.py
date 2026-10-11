@@ -13,18 +13,13 @@ _NO_KEYS = 1
 
 
 class SshAgent:
-    """An ssh-agent bound to ``socket``, reused across launches of one sandbox.
-
-    ``environ`` is the caller's environment; the agent's own environment is
-    derived from it with the personal agent replaced by this one.
-    """
+    """An ssh-agent bound to ``socket``, reused across launches of one sandbox."""
 
     def __init__(self, host: HostPort, socket: Path, environ: Mapping[str, str], uid: int) -> None:
         self._host = host
         self._uid = uid
+        self._environ = environ
         self.socket = socket
-        self.env = {key: value for key, value in environ.items() if key != "SSH_AGENT_PID"}
-        self.env["SSH_AUTH_SOCK"] = str(socket)
 
     def ensure_running(self) -> None:
         """Start the agent unless one already answers on the socket."""
@@ -63,4 +58,8 @@ class SshAgent:
         return self._ssh_add("-l").returncode in (_HAS_KEYS, _NO_KEYS)
 
     def _ssh_add(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return self._host.run(("ssh-add", *args), env=self.env)
+        # ssh-add only needs to find itself and reach the right agent - nothing else.
+        env = {"SSH_AUTH_SOCK": str(self.socket)}
+        if "PATH" in self._environ:
+            env["PATH"] = self._environ["PATH"]
+        return self._host.run(("ssh-add", *args), env=env)

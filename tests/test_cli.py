@@ -7,7 +7,7 @@ from agent_sandbox.cli import MAX_NAME_LENGTH, Arguments, ensure_valid_args, par
 from agent_sandbox.config import Config
 from agent_sandbox.errors import SandboxError
 from agent_sandbox.host import socket_path
-from agent_sandbox.sbx import Sbx
+from agent_sandbox.sbx import Sbx, sbx_env
 from agent_sandbox.ssh_agent import SshAgent
 
 NAME = "myproj-dev"
@@ -97,6 +97,7 @@ def run_prepare(
     git_email=None,
 ):
     agent = SshAgent(host, socket, PERSONAL_ENV, os.getuid())
+    env = sbx_env(PERSONAL_ENV, socket)
     args = Arguments(
         name=NAME,
         workspace=workspace,
@@ -108,7 +109,7 @@ def run_prepare(
         git_email=git_email,
     )
     ensure_valid_args(args)
-    return prepare_sbx_execution(args, config, Sbx(host, agent.env), agent)
+    return prepare_sbx_execution(args, config, Sbx(host, env), agent, env)
 
 
 def with_ssh_key(host, ssh_key):

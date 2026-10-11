@@ -68,6 +68,17 @@ def fingerprints(ssh_add_lines: Sequence[str]) -> set[str]:
     return {line.split()[1] for line in ssh_add_lines if line.strip()}
 
 
+def sbx_env(environ: Mapping[str, str], socket: Path) -> dict[str, str]:
+    """The environment every call aimed at the sandbox must carry: its own agent socket.
+
+    sbx points a sandbox's forwarded agent at SSH_AUTH_SOCK, so no call may
+    carry another socket - including the final exec into ``sbx run``.
+    """
+    env = {key: value for key, value in environ.items() if key != "SSH_AGENT_PID"}
+    env["SSH_AUTH_SOCK"] = str(socket)
+    return env
+
+
 def sbx_run_args(name: str, agent_args: Sequence[str]) -> tuple[str, ...]:
     """``sbx run`` for an existing sandbox.
 

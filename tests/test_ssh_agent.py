@@ -8,7 +8,7 @@ from agent_sandbox.ssh_agent import SshAgent
 LIST = ("ssh-add", "-l")
 DELETE_ALL = ("ssh-add", "-D")
 NOT_RUNNING, NO_KEYS = 2, 1  # ssh-add -l exit codes
-PERSONAL_ENV = {"PATH": "/bin", "SSH_AUTH_SOCK": "/personal.sock", "SSH_AGENT_PID": "42"}
+PERSONAL_ENV = {"PATH": "/bin", "HOME": "/home/dev", "SSH_AUTH_SOCK": "/personal.sock", "SSH_AGENT_PID": "42"}
 
 
 @pytest.fixture
@@ -28,8 +28,12 @@ def start(socket):
 # --- environment ------------------------------------------------------------
 
 
-def test_env_points_at_this_agent_only(make_agent, socket):
-    assert make_agent().env == {"PATH": "/bin", "SSH_AUTH_SOCK": str(socket)}
+def test_ssh_add_calls_only_carry_path_and_the_sandboxs_socket(host, make_agent, socket):
+    host.responses = {LIST: NO_KEYS}
+
+    make_agent().ensure_running()
+
+    assert host.calls == [(LIST, {"PATH": "/bin", "SSH_AUTH_SOCK": str(socket)})]
 
 
 # --- ensure_running ---------------------------------------------------------
