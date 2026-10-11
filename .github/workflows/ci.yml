@@ -37,12 +37,13 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
 
-  # Informational only (see continue-on-error): mutation testing needs a human
-  # to triage survivors (argparse help text and the like are permanently
-  # unkillable), so it isn't a merge-blocking signal like the jobs above.
+  # Raw survivor count is not itself a merge gate: argparse help text and the
+  # like are permanently unkillable mutants that need a human to triage, not
+  # a threshold. What IS gated is regression against mutmut-baseline.txt -
+  # already-triaged survivors are expected and fine; a *new* one means a
+  # change just lost test coverage it used to have.
   mutmut:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -50,5 +51,18 @@ jobs:
           enable-cache: true
       - run: uv sync --extra dev
       - run: uv run mutmut run
+        continue-on-error: true
       - if: always()
-        run: uv run mutmut results
+        run: uv run mutmut results | sed -E 's/^[[:space:]]+//' | sort > /tmp/mutmut-current.txt
+      - name: Check for new mutation survivors
+        run: |
+          new_survivors=$(comm -13 mutmut-baseline.txt /tmp/mutmut-current.txt)
+          if [ -n "$new_survivors" ]; then
+            echo "::error::New mutants survived that aren't in mutmut-baseline.txt:"
+            echo "$new_survivors"
+            echo
+            echo "If this is expected, regenerate the baseline locally and commit it:"
+            echo "  uv run mutmut run && uv run mutmut results | sed -E 's/^[[:space:]]+//' | sort > mutmut-baseline.txt"
+            exit 1
+          fi
+          echo "No new mutation survivors."
