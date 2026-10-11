@@ -2,14 +2,20 @@
 
 import subprocess
 from collections.abc import Sequence
+from enum import IntEnum
 from pathlib import Path
 
 from agent_sandbox.errors import SandboxError
 from agent_sandbox.host import HostPort
 
-# ssh-add -l exit codes
-_HAS_KEYS = 0
-_NO_KEYS = 1
+
+class SshAddExitCode(IntEnum):
+    """Exit codes from ``ssh-add -l``, wherever it's run - directly against this
+    agent, or inside the sandbox against whatever agent is forwarded there."""
+
+    HAS_KEYS = 0
+    NO_KEYS = 1
+    NO_AGENT = 2
 
 
 class SshAgent:
@@ -52,14 +58,18 @@ class SshAgent:
 
     def list_keys(self) -> list[str]:
         result = self._ssh_add("-l")
-        return result.stdout.splitlines() if result.returncode == _HAS_KEYS else []
+        return result.stdout.splitlines() if result.returncode == SshAddExitCode.HAS_KEYS else []
 
     def list_key_fingerprints(self) -> set[str]:
-        """Fingerprints from ``ssh-add -l`` lines: ``<bits> <fingerprint> <comment> (<type>)``."""
-        return {line.split()[1] for line in self.list_keys() if line.strip()}
+        return {self.parse_fingerprint(line) for line in self.list_keys() if line.strip()}
+
+    @staticmethod
+    def parse_fingerprint(ssh_add_line: str) -> str:
+        """The fingerprint from one ``ssh-add -l`` line: ``<bits> <fingerprint> <comment> (<type>)``."""
+        return ssh_add_line.split()[1]
 
     def _is_running(self) -> bool:
-        return self._ssh_add("-l").returncode in (_HAS_KEYS, _NO_KEYS)
+        return self._ssh_add("-l").returncode in (SshAddExitCode.HAS_KEYS, SshAddExitCode.NO_KEYS)
 
     def _ssh_add(self, *args: str) -> subprocess.CompletedProcess[str]:
         # ssh-add only needs to find itself and reach the right agent - nothing else.

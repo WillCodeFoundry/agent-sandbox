@@ -1,8 +1,16 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from agent_sandbox.cli import MAX_NAME_LENGTH, Arguments, ensure_valid_args, parse_args, prepare_sbx_execution
+from agent_sandbox.cli import (
+    MAX_NAME_LENGTH,
+    Arguments,
+    ensure_valid_args,
+    execution_description,
+    parse_args,
+    prepare_sbx_execution,
+)
 from agent_sandbox.config import Config
 from agent_sandbox.errors import SandboxError
 from agent_sandbox.host import HostPort
@@ -95,9 +103,11 @@ def run_prepare(
     git_name=None,
     git_email=None,
 ):
+    """Run prepare_sbx_execution and report what the subsequent launch would do."""
     host.environ_value = PERSONAL_ENV
     ssh_agent = SshAgent(host, socket)
     env = Sbx.env(host.environ(), socket)
+    sbx = Sbx(host, env)
     args = Arguments(
         name=NAME,
         workspace=workspace,
@@ -109,7 +119,12 @@ def run_prepare(
         git_email=git_email,
     )
     ensure_valid_args(args, host)
-    return prepare_sbx_execution(args, config, Sbx(host, env), ssh_agent, env, host)
+    prepare_sbx_execution(args, config, sbx, ssh_agent, host)
+    return SimpleNamespace(
+        command=sbx.run_args(args.name, args.agent_args),
+        env=env,
+        message=execution_description(args, ssh_agent),
+    )
 
 
 def with_ssh_key(host, ssh_key):

@@ -6,11 +6,7 @@ from pathlib import Path
 
 from agent_sandbox.errors import SandboxError
 from agent_sandbox.host import HostPort
-
-# ssh-add -l exit codes, as seen inside the sandbox
-_HAS_KEYS = 0
-_NO_KEYS = 1
-_NO_AGENT = 2
+from agent_sandbox.ssh_agent import SshAddExitCode, SshAgent
 
 
 class Sbx:
@@ -62,11 +58,11 @@ class Sbx:
     def agent_fingerprints(self, name: str) -> set[str] | None:
         """Fingerprints of the keys the sandbox's agent offers, or None if no agent reaches it."""
         result = self._sbx("exec", name, "ssh-add", "-l")
-        if result.returncode == _HAS_KEYS:
-            return {line.split()[1] for line in result.stdout.splitlines() if line.strip()}
-        if result.returncode == _NO_KEYS:
+        if result.returncode == SshAddExitCode.HAS_KEYS:
+            return {SshAgent.parse_fingerprint(line) for line in result.stdout.splitlines() if line.strip()}
+        if result.returncode == SshAddExitCode.NO_KEYS:
             return set()
-        if result.returncode == _NO_AGENT:
+        if result.returncode == SshAddExitCode.NO_AGENT:
             return None
         raise SandboxError(f"could not list the sandbox's keys: {result.stderr.strip()}")
 

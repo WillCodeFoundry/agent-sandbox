@@ -7,6 +7,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NoReturn
 
 from agent_sandbox.config import AGENT, Config
 from agent_sandbox.errors import SandboxError
@@ -33,15 +34,6 @@ class Arguments:
     github_token_file: Path | None = None
     git_name: str | None = None
     git_email: str | None = None
-
-
-@dataclass(frozen=True)
-class CommandToExecute:
-    """What to run to attach to the sandbox, and what to tell the user before running it."""
-
-    command: tuple[str, ...]
-    env: Mapping[str, str]
-    message: str = ""
 
 
 class _StoreOnce(argparse.Action):
@@ -147,19 +139,14 @@ def parse_args(argv: Sequence[str]) -> Arguments:
     )
 
 
-def prepare_sbx_execution(
-    args: Arguments, config: Config, sbx: Sbx, ssh_agent: SshAgent, env: Mapping[str, str], host: HostPort
-) -> CommandToExecute:
-    """Synchronize the sandbox and describe what running it will do. Call ensure_valid_args(args, host) first.
+def prepare_sbx_execution(args: Arguments, config: Config, sbx: Sbx, ssh_agent: SshAgent, host: HostPort) -> None:
+    """Synchronize the sandbox and its ssh-agent with args, and verify what the sandbox can see.
 
-    ``env`` is what the final command runs under; it must be what ``sbx`` was built with.
+    Call ensure_valid_args(args, host) first.
     """
     ensure_ssh_agent_running(args, ssh_agent)
     ensure_sandbox_present(args, config, sbx, host)
     ensure_forwarded_keys(ssh_agent, sbx, args.name)
-    message = describe(args, ssh_agent)
-    command = sbx.run_args(args.name, args.agent_args)
-    return CommandToExecute(command, env=env, message=message)
 
 
 def ensure_ssh_agent_running(args: Arguments, ssh_agent: SshAgent) -> None:
@@ -192,7 +179,7 @@ def ensure_sandbox_present(args: Arguments, config: Config, sbx: Sbx, host: Host
         sbx.set_git_config(args.name, key, value)
 
 
-def describe(args: Arguments, ssh_agent: SshAgent) -> str:
+def execution_description(args: Arguments, ssh_agent: SshAgent) -> str:
     """Build the message describing what running args will do, ready to log as-is."""
     loaded = ssh_agent.list_keys()
     # fmt: off
@@ -264,6 +251,11 @@ def ensure_forwarded_keys(ssh_agent: SshAgent, sbx: Sbx, name: str) -> None:
         )
 
 
+def launch_sbx(sbx: Sbx, args: Arguments, env: Mapping[str, str], host: HostPort) -> NoReturn:
+    """Replace this process with sbx: it gets the terminal, signals and exit code."""
+    host.exec(sbx.run_args(args.name, args.agent_args), env)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     config = Config.default()
@@ -271,15 +263,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     socket = host.socket_path(config.sockets_dir, args.name)
     ssh_agent = SshAgent(host, socket)
     env = Sbx.env(host.environ(), socket)
+    sbx = Sbx(host, env)
     try:
         # A socket in a directory someone else controls could be their agent, not ours.
         host.ensure_private_dir(socket.parent)
         ensure_valid_args(args, host)
-        cmd = prepare_sbx_execution(args, config, Sbx(host, env), ssh_agent, env, host)
+        prepare_sbx_execution(args, config, sbx, ssh_agent, host)
     except SandboxError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
-    print(cmd.message, file=sys.stderr)
-    # Replace this process with sbx: it gets the terminal, signals and exit code.
-    host.exec(cmd.command, cmd.env)
+    print(execution_description(args, ssh_agent), file=sys.stderr)
+    launch_sbx(sbx, args, env, host)
