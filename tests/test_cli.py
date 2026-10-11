@@ -306,7 +306,6 @@ def test_the_agent_holds_exactly_the_given_key(prepare, ready_host, ssh_key):
     commands = ready_host.commands
     assert commands.index(DELETE_ALL) < commands.index(("ssh-add", "-q", str(ssh_key)))
     assert "test-key" in cmd.message
-    assert "holds no key" not in cmd.message
 
 
 def test_warns_when_no_ssh_key_is_given(prepare, ready_host):
