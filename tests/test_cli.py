@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from agent_sandbox.cli import MAX_NAME_LENGTH, Arguments, ensure_valid_args, parse_args, prepare_sbx_execution
 from agent_sandbox.config import Config
 from agent_sandbox.errors import SandboxError
+from agent_sandbox.host import socket_path
 from agent_sandbox.sbx import Sbx
 from agent_sandbox.ssh_agent import SshAgent
 
@@ -61,7 +63,7 @@ def github_token_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def socket(config: Config) -> Path:
-    return config.sockets_dir / f"{NAME}.sock"
+    return socket_path(config.sockets_dir, NAME, os.getuid())
 
 
 @pytest.fixture
@@ -94,7 +96,7 @@ def run_prepare(
     git_name=None,
     git_email=None,
 ):
-    agent = SshAgent(host, socket, PERSONAL_ENV, config.uid)
+    agent = SshAgent(host, socket, PERSONAL_ENV, os.getuid())
     args = Arguments(
         name=NAME,
         workspace=workspace,

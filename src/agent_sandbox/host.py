@@ -10,6 +10,11 @@ from typing import NoReturn, Protocol
 from agent_sandbox.errors import SandboxError
 
 
+def socket_path(sockets_dir: Path, name: str, uid: int) -> Path:
+    """The ssh-agent socket for sandbox ``name``, under a directory private to ``uid``."""
+    return sockets_dir.with_name(f"{sockets_dir.name}-{uid}") / f"{name}.sock"
+
+
 class HostPort(Protocol):
     def run(self, cmd: Sequence[str], *, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         """Run a command to completion, capturing its output (like subprocess.run)."""

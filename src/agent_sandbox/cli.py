@@ -10,7 +10,7 @@ from pathlib import Path
 
 from agent_sandbox.config import AGENT, Config
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import Host
+from agent_sandbox.host import Host, socket_path
 from agent_sandbox.sbx import Sbx, fingerprints, sbx_run_args
 from agent_sandbox.ssh_agent import SshAgent
 
@@ -263,8 +263,9 @@ def check_forwarded_keys(expected: set[str], seen: set[str] | None) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     config = Config.default()
+    uid = os.getuid()
     host = Host()
-    agent = SshAgent(host, config.sockets_dir / f"{args.name}.sock", os.environ, config.uid)
+    agent = SshAgent(host, socket_path(config.sockets_dir, args.name, uid), os.environ, uid)
     try:
         ensure_valid_args(args)
         cmd = prepare_sbx_execution(args, config, Sbx(host, agent.env), agent)

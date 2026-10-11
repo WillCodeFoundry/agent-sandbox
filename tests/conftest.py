@@ -1,4 +1,3 @@
-import os
 import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -69,4 +68,4 @@ def host() -> FakeHost:
 
 @pytest.fixture
 def config(tmp_path: Path) -> Config:
-    return Config(agent="claude", sockets_dir=tmp_path / "sockets", uid=os.getuid())
+    return Config(agent="claude", sockets_dir=tmp_path / "sockets")

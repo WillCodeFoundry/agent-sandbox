@@ -1,9 +1,10 @@
 import os
+from pathlib import Path
 
 import pytest
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import Host
+from agent_sandbox.host import Host, socket_path
 
 
 @pytest.fixture
@@ -66,3 +67,10 @@ def test_remove_file_deletes_an_existing_file(host, tmp_path):
 
 def test_remove_file_is_a_noop_when_nothing_is_there(host, tmp_path):
     host.remove_file(tmp_path / "missing")
+
+
+# --- socket_path --------------------------------------------------------------
+
+
+def test_socket_path_is_private_to_the_uid_and_named_for_the_sandbox():
+    assert socket_path(Path("/tmp/sbx-agents"), "myproj-dev", 501) == Path("/tmp/sbx-agents-501/myproj-dev.sock")
