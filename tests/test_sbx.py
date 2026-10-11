@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.sbx import Sbx, fingerprints, sbx_run_args
+from agent_sandbox.sbx import Sbx
 
 SANDBOX_ENV = {"PATH": "/bin", "SSH_AUTH_SOCK": "/sockets/n.sock"}
 EXISTS = ("sbx", "exec", "n", "true")
@@ -123,13 +123,20 @@ def test_agent_fingerprints_failure_is_reported(host, sbx):
         sbx.agent_fingerprints("n")
 
 
-def test_fingerprints_ignore_blank_lines():
-    assert fingerprints(["256 SHA256:aaa key (ED25519)", ""]) == {"SHA256:aaa"}
+def test_fingerprints_ignore_blank_lines(sbx):
+    assert sbx.fingerprints(["256 SHA256:aaa key (ED25519)", ""]) == {"SHA256:aaa"}
 
 
-def test_sbx_run_args_attach_by_name_and_pass_agent_args():
-    assert sbx_run_args("n", ["--continue"]) == ("sbx", "run", "--name", "n", "--", "--continue")
+def test_run_args_attach_by_name_and_pass_agent_args(sbx):
+    assert sbx.run_args("n", ["--continue"]) == ("sbx", "run", "--name", "n", "--", "--continue")
 
 
-def test_sbx_run_args_without_agent_args():
-    assert sbx_run_args("n", []) == ("sbx", "run", "--name", "n")
+def test_run_args_without_agent_args(sbx):
+    assert sbx.run_args("n", []) == ("sbx", "run", "--name", "n")
+
+
+def test_env_carries_the_sandboxs_socket_and_drops_the_personal_agent_pid():
+    assert Sbx.env({"PATH": "/bin", "SSH_AGENT_PID": "42"}, Path("/sockets/n.sock")) == {
+        "PATH": "/bin",
+        "SSH_AUTH_SOCK": "/sockets/n.sock",
+    }

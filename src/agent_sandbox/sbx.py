@@ -25,6 +25,17 @@ class Sbx:
         self._host = host
         self._env = env
 
+    @staticmethod
+    def env(environ: Mapping[str, str], socket: Path) -> dict[str, str]:
+        """The environment every call aimed at the sandbox must carry: its own agent socket.
+
+        sbx points a sandbox's forwarded agent at SSH_AUTH_SOCK, so no call may
+        carry another socket - including the final exec into ``sbx run``.
+        """
+        env = {key: value for key, value in environ.items() if key != "SSH_AGENT_PID"}
+        env["SSH_AUTH_SOCK"] = str(socket)
+        return env
+
     def exists(self, name: str) -> bool:
         return self._sbx("exec", name, "true").returncode == 0
 
@@ -52,38 +63,25 @@ class Sbx:
         """Fingerprints of the keys the sandbox's agent offers, or None if no agent reaches it."""
         result = self._sbx("exec", name, "ssh-add", "-l")
         if result.returncode == _HAS_KEYS:
-            return fingerprints(result.stdout.splitlines())
+            return self.fingerprints(result.stdout.splitlines())
         if result.returncode == _NO_KEYS:
             return set()
         if result.returncode == _NO_AGENT:
             return None
         raise SandboxError(f"could not list the sandbox's keys: {result.stderr.strip()}")
 
+    def fingerprints(self, ssh_add_lines: Sequence[str]) -> set[str]:
+        """Fingerprints from ``ssh-add -l`` lines: ``<bits> <fingerprint> <comment> (<type>)``."""
+        return {line.split()[1] for line in ssh_add_lines if line.strip()}
+
+    def run_args(self, name: str, agent_args: Sequence[str]) -> tuple[str, ...]:
+        """``sbx run`` for an existing sandbox.
+
+        The sandbox is always created first, and sbx refuses workspace paths when
+        attaching to an existing sandbox: its mounts are fixed at creation.
+        """
+        args = ("sbx", "run", "--name", name)
+        return (*args, "--", *agent_args) if agent_args else args
+
     def _sbx(self, *args: str) -> subprocess.CompletedProcess[str]:
         return self._host.run(("sbx", *args), env=self._env)
-
-
-def fingerprints(ssh_add_lines: Sequence[str]) -> set[str]:
-    """Fingerprints from ``ssh-add -l`` lines: ``<bits> <fingerprint> <comment> (<type>)``."""
-    return {line.split()[1] for line in ssh_add_lines if line.strip()}
-
-
-def sbx_env(environ: Mapping[str, str], socket: Path) -> dict[str, str]:
-    """The environment every call aimed at the sandbox must carry: its own agent socket.
-
-    sbx points a sandbox's forwarded agent at SSH_AUTH_SOCK, so no call may
-    carry another socket - including the final exec into ``sbx run``.
-    """
-    env = {key: value for key, value in environ.items() if key != "SSH_AGENT_PID"}
-    env["SSH_AUTH_SOCK"] = str(socket)
-    return env
-
-
-def sbx_run_args(name: str, agent_args: Sequence[str]) -> tuple[str, ...]:
-    """``sbx run`` for an existing sandbox.
-
-    The sandbox is always created first, and sbx refuses workspace paths when
-    attaching to an existing sandbox: its mounts are fixed at creation.
-    """
-    args = ("sbx", "run", "--name", name)
-    return (*args, "--", *agent_args) if agent_args else args

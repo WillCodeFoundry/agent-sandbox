@@ -10,8 +10,8 @@ from pathlib import Path
 
 from agent_sandbox.config import AGENT, Config
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import Host, socket_path
-from agent_sandbox.sbx import Sbx, fingerprints, sbx_env, sbx_run_args
+from agent_sandbox.host import Host, HostPort
+from agent_sandbox.sbx import Sbx
 from agent_sandbox.ssh_agent import SshAgent
 
 # What sbx accepts in a sandbox name, starting with a letter or digit. The name
@@ -148,22 +148,22 @@ def parse_args(argv: Sequence[str]) -> Arguments:
 
 
 def prepare_sbx_execution(
-    args: Arguments, config: Config, sbx: Sbx, agent: SshAgent, env: Mapping[str, str]
+    args: Arguments, config: Config, sbx: Sbx, agent: SshAgent, env: Mapping[str, str], host: HostPort
 ) -> CommandToExecute:
-    """Synchronize the sandbox and describe what running it will do. Call ensure_valid_args(args) first.
+    """Synchronize the sandbox and describe what running it will do. Call ensure_valid_args(args, host) first.
 
     ``env`` is what the final command runs under; it must be what ``sbx`` was built with.
     """
-    loaded, public_key = apply(args, config, sbx, agent)
+    loaded, public_key = apply(args, config, sbx, agent, host)
     message = describe(args, agent, loaded, public_key)
-    command = sbx_run_args(args.name, args.agent_args)
+    command = sbx.run_args(args.name, args.agent_args)
     return CommandToExecute(command, env=env, message=message)
 
 
-def apply(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> tuple[list[str], str | None]:
+def apply(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent, host: HostPort) -> tuple[list[str], str | None]:
     """Make the sandbox and its agent match args; return the agent's keys and signing key."""
     ssh_key = args.ssh_key
-    public_key = public_key_path(ssh_key).read_text().strip() if ssh_key is not None else None
+    public_key = host.public_key_path(ssh_key).read_text().strip() if ssh_key is not None else None
 
     agent.ensure_running()
     agent.replace_keys([ssh_key] if ssh_key is not None else [])
@@ -186,7 +186,7 @@ def apply(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> tuple[l
     ]
     for key, value in git_config:
         sbx.set_git_config(args.name, key, value)
-    check_forwarded_keys(fingerprints(loaded), sbx.agent_fingerprints(args.name))
+    check_forwarded_keys(sbx.fingerprints(loaded), sbx.agent_fingerprints(args.name))
 
     return loaded, public_key
 
@@ -212,52 +212,38 @@ def describe(args: Arguments, agent: SshAgent, loaded: list[str], public_key: st
     return "\n".join(f"==> {note}" for note in notes)
 
 
-def public_key_path(ssh_key: Path) -> Path:
-    """Where ssh-keygen puts the public half of a private key, by naming convention."""
-    return ssh_key.with_name(ssh_key.name + ".pub")
-
-
-def ensure_dir_exists(path: Path, what: str) -> None:
-    if not path.is_dir():
-        raise SandboxError(f"{what} {str(path)!r} is not a directory")
-
-
-def ensure_file_exists(path: Path, what: str) -> None:
-    if not path.is_file():
-        raise SandboxError(f"{what} {str(path)!r} is not a file")
-
-
-def ensure_paths_safe(workspace: Path, context: Path, ssh_key: Path | None) -> None:
+def ensure_paths_safe(workspace: Path, context: Path, ssh_key: Path | None, host: HostPort) -> None:
     """Refuse layouts that would undo the sandbox's protections.
 
     workspace, context and ssh_key must already be resolved, so aliasing through a
     relative form can't slip past these checks.
     """
-    for path, what in [(workspace, "workspace"), (context, "context")]:
-        # sbx reads a trailing ":ro" off its path arguments; a ":" in the path is ambiguous.
-        if ":" in str(path):
-            raise SandboxError(f"{what} path {str(path)!r} contains ':'")
+    # sbx reads a trailing ":ro" off its path arguments; a ":" in the path is ambiguous.
+    if ":" in str(workspace):
+        raise SandboxError(f"workspace path {str(workspace)!r} contains ':'")
+    if ":" in str(context):
+        raise SandboxError(f"context path {str(context)!r} contains ':'")
     # Keep the context's read-only mount independent of the workspace's.
-    if workspace.is_relative_to(context) or context.is_relative_to(workspace):
+    if host.is_nested_dir(workspace, context):
         raise SandboxError(f"context {str(context)!r} overlaps workspace {str(workspace)!r}")
     # The ssh key the sandbox can read could be copied out, bypassing the agent.
-    if ssh_key is not None:
-        for folder, what in [(workspace, "workspace"), (context, "context")]:
-            if ssh_key.is_relative_to(folder):
-                raise SandboxError(f"ssh key {str(ssh_key)!r} is inside the {what}, readable by the sandbox")
+    if ssh_key is not None and host.contains(workspace, ssh_key):
+        raise SandboxError(f"ssh key {str(ssh_key)!r} is inside the workspace, readable by the sandbox")
+    if ssh_key is not None and host.contains(context, ssh_key):
+        raise SandboxError(f"ssh key {str(ssh_key)!r} is inside the context, readable by the sandbox")
 
 
-def ensure_valid_args(args: Arguments) -> None:
+def ensure_valid_args(args: Arguments, host: HostPort) -> None:
     """Raise if anything about args would undo the sandbox's protections or doesn't exist."""
-    ensure_dir_exists(args.workspace, "workspace")
-    ensure_dir_exists(args.context, "context")
+    host.ensure_dir_exists(args.workspace, "workspace")
+    host.ensure_dir_exists(args.context, "context")
     if args.ssh_key is not None:
-        ensure_file_exists(args.ssh_key, "ssh key")
-    ensure_paths_safe(args.workspace, args.context, args.ssh_key)
+        host.ensure_file_exists(args.ssh_key, "ssh key")
+    ensure_paths_safe(args.workspace, args.context, args.ssh_key, host)
     if args.github_token_file is not None:
-        ensure_file_exists(args.github_token_file, "github token file")
+        host.ensure_file_exists(args.github_token_file, "github token file")
     if args.ssh_key is not None:
-        ensure_file_exists(public_key_path(args.ssh_key), "public key")
+        host.ensure_file_exists(host.public_key_path(args.ssh_key), "public key")
 
 
 def check_forwarded_keys(expected: set[str], seen: set[str] | None) -> None:
@@ -279,12 +265,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = Config.default()
     uid = os.getuid()
     host = Host()
-    socket = socket_path(config.sockets_dir, args.name, uid)
+    socket = host.socket_path(config.sockets_dir, args.name, uid)
     agent = SshAgent(host, socket, os.environ, uid)
-    env = sbx_env(os.environ, socket)
+    env = Sbx.env(os.environ, socket)
     try:
-        ensure_valid_args(args)
-        cmd = prepare_sbx_execution(args, config, Sbx(host, env), agent, env)
+        ensure_valid_args(args, host)
+        cmd = prepare_sbx_execution(args, config, Sbx(host, env), agent, env, host)
     except SandboxError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
