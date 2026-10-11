@@ -1,3 +1,4 @@
+import json  # demo only: unused, shows the ruff job failing in CI
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -524,3 +525,8 @@ def test_paths_containing_a_colon_are_refused(host, config, socket, workspace, c
     with pytest.raises(SandboxError, match="contains ':'"):
         run_prepare(host, config, socket, paths["workspace"], paths["context"])
     assert host.calls == []
+
+
+def test_demo_deliberately_failing():
+    """Demo only: shows the test job failing in CI. Not meant to be merged."""
+    assert 1 + 1 == 3
