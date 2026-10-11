@@ -1,19 +1,34 @@
-"""The boundary to the host machine: every external command goes through here."""
+"""The boundary to the host machine: every external command and filesystem privilege check goes through here."""
 
+import os
+import stat
 import subprocess
 from collections.abc import Mapping, Sequence
-from typing import Protocol
+from pathlib import Path
+from typing import NoReturn, Protocol
 
 from agent_sandbox.errors import SandboxError
 
 
-class Host(Protocol):
+class HostPort(Protocol):
     def run(self, cmd: Sequence[str], *, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         """Run a command to completion, capturing its output (like subprocess.run)."""
         ...
 
+    def exec(self, cmd: Sequence[str], env: Mapping[str, str]) -> NoReturn:
+        """Replace the current process with cmd (like os.execvpe)."""
+        ...
 
-class SubprocessHost:
+    def ensure_private_dir(self, path: Path, uid: int) -> None:
+        """Create path as a directory only uid can use; raise if it isn't one."""
+        ...
+
+    def remove_file(self, path: Path) -> None:
+        """Delete path if it exists."""
+        ...
+
+
+class Host:
     def run(self, cmd: Sequence[str], *, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         try:
             return subprocess.run(
@@ -24,3 +39,25 @@ class SubprocessHost:
             )
         except FileNotFoundError:
             raise SandboxError(f"{cmd[0]} not found in PATH") from None
+
+    def exec(self, cmd: Sequence[str], env: Mapping[str, str]) -> NoReturn:
+        os.execvpe(cmd[0], list(cmd), dict(env))
+
+    def ensure_private_dir(self, path: Path, uid: int) -> None:
+        """Create path as a directory only uid can use, refusing one we don't own.
+
+        The sockets directory lives in /tmp, which is shared: another user could
+        create it first, or put a symlink there pointing somewhere they control.
+        """
+        try:
+            path.mkdir(mode=0o700, exist_ok=True)
+            info = os.lstat(path)
+            ours = stat.S_ISDIR(info.st_mode) and info.st_uid == uid
+        except FileExistsError:  # a file, or a dangling symlink
+            ours = False
+        if not ours:
+            raise SandboxError(f"{path} is not a directory owned by you")
+        path.chmod(0o700)
+
+    def remove_file(self, path: Path) -> None:
+        path.unlink(missing_ok=True)

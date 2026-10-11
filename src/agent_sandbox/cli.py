@@ -10,7 +10,7 @@ from pathlib import Path
 
 from agent_sandbox.config import AGENT, Config
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import SubprocessHost
+from agent_sandbox.host import Host
 from agent_sandbox.sbx import Sbx, fingerprints, sbx_run_args
 from agent_sandbox.ssh_agent import SshAgent
 
@@ -224,7 +224,7 @@ def ensure_paths_safe(workspace: Path, context: Path, ssh_key: Path | None) -> N
         if ":" in str(path):
             raise SandboxError(f"{what} path {str(path)!r} contains ':'")
     # Keep the context's read-only mount independent of the workspace's.
-    if overlaps(workspace, context):
+    if workspace.is_relative_to(context) or context.is_relative_to(workspace):
         raise SandboxError(f"context {str(context)!r} overlaps workspace {str(workspace)!r}")
     # The ssh key the sandbox can read could be copied out, bypassing the agent.
     if ssh_key is not None:
@@ -246,10 +246,6 @@ def ensure_valid_args(args: Arguments) -> None:
         ensure_file_exists(public_key_path(args.ssh_key), "public key")
 
 
-def overlaps(a: Path, b: Path) -> bool:
-    return a.is_relative_to(b) or b.is_relative_to(a)
-
-
 def check_forwarded_keys(expected: set[str], seen: set[str] | None) -> None:
     """The sandbox must see exactly the keys we loaded, whatever sbx's settings claim."""
     if seen is None and not expected:
@@ -267,7 +263,7 @@ def check_forwarded_keys(expected: set[str], seen: set[str] | None) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     config = Config.default()
-    host = SubprocessHost()
+    host = Host()
     agent = SshAgent(host, config.sockets_dir / f"{args.name}.sock", os.environ, config.uid)
     try:
         ensure_valid_args(args)
@@ -278,4 +274,4 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     print(cmd.message, file=sys.stderr)
     # Replace this process with sbx: it gets the terminal, signals and exit code.
-    os.execvpe(cmd.command[0], cmd.command, cmd.env)
+    host.exec(cmd.command, cmd.env)

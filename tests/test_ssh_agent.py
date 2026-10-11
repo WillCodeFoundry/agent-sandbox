@@ -3,7 +3,7 @@ import os
 import pytest
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.ssh_agent import SshAgent, ensure_private_dir
+from agent_sandbox.ssh_agent import SshAgent
 
 LIST = ("ssh-add", "-l")
 DELETE_ALL = ("ssh-add", "-D")
@@ -130,44 +130,3 @@ def test_lists_no_keys_for_an_empty_agent(host, make_agent):
     host.responses = {LIST: NO_KEYS}
 
     assert make_agent().list_keys() == []
-
-
-# --- ensure_private_dir -----------------------------------------------------
-
-
-def test_private_dir_is_created_for_the_owner_only(tmp_path):
-    ensure_private_dir(tmp_path / "sockets", os.getuid())
-
-    assert (tmp_path / "sockets").stat().st_mode & 0o777 == 0o700
-
-
-def test_private_dir_tightens_existing_permissions(tmp_path):
-    (tmp_path / "sockets").mkdir(mode=0o755)
-
-    ensure_private_dir(tmp_path / "sockets", os.getuid())
-
-    assert (tmp_path / "sockets").stat().st_mode & 0o777 == 0o700
-
-
-def test_private_dir_symlink_is_refused_and_target_untouched(tmp_path):
-    target = tmp_path / "elsewhere"
-    target.mkdir(mode=0o755)
-    (tmp_path / "sockets").symlink_to(target)
-
-    with pytest.raises(SandboxError, match="not a directory owned by you"):
-        ensure_private_dir(tmp_path / "sockets", os.getuid())
-    assert target.stat().st_mode & 0o777 == 0o755
-
-
-def test_private_dir_that_is_a_file_is_refused(tmp_path):
-    (tmp_path / "sockets").touch()
-
-    with pytest.raises(SandboxError, match="not a directory owned by you"):
-        ensure_private_dir(tmp_path / "sockets", os.getuid())
-
-
-def test_private_dir_that_is_a_dangling_symlink_is_refused(tmp_path):
-    (tmp_path / "sockets").symlink_to(tmp_path / "missing")
-
-    with pytest.raises(SandboxError, match="not a directory owned by you"):
-        ensure_private_dir(tmp_path / "sockets", os.getuid())

@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import Host
+from agent_sandbox.host import HostPort
 
 # ssh-add -l exit codes, as seen inside the sandbox
 _HAS_KEYS = 0
@@ -21,7 +21,7 @@ class Sbx:
     so no call may carry another socket.
     """
 
-    def __init__(self, host: Host, env: Mapping[str, str]) -> None:
+    def __init__(self, host: HostPort, env: Mapping[str, str]) -> None:
         self._host = host
         self._env = env
 
