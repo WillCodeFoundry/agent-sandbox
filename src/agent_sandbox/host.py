@@ -43,6 +43,10 @@ class HostPort(Protocol):
         """Raise if path is not a file."""
         ...
 
+    def public_key_path(self, ssh_key: Path) -> Path:
+        """Where ssh-keygen puts the public half of a private key, by naming convention."""
+        ...
+
 
 class Host:
     def __init__(self, uid: int) -> None:
@@ -95,3 +99,6 @@ class Host:
     def ensure_file_exists(self, path: Path, what: str) -> None:
         if not path.is_file():
             raise SandboxError(f"{what} {str(path)!r} is not a file")
+
+    def public_key_path(self, ssh_key: Path) -> Path:
+        return ssh_key.with_name(ssh_key.name + ".pub")

@@ -54,6 +54,10 @@ class SshAgent:
         result = self._ssh_add("-l")
         return result.stdout.splitlines() if result.returncode == _HAS_KEYS else []
 
+    def list_key_fingerprints(self) -> set[str]:
+        """Fingerprints from ``ssh-add -l`` lines: ``<bits> <fingerprint> <comment> (<type>)``."""
+        return {line.split()[1] for line in self.list_keys() if line.strip()}
+
     def _is_running(self) -> bool:
         return self._ssh_add("-l").returncode in (_HAS_KEYS, _NO_KEYS)
 

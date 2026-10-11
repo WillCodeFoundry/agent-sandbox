@@ -63,16 +63,12 @@ class Sbx:
         """Fingerprints of the keys the sandbox's agent offers, or None if no agent reaches it."""
         result = self._sbx("exec", name, "ssh-add", "-l")
         if result.returncode == _HAS_KEYS:
-            return self.fingerprints(result.stdout.splitlines())
+            return {line.split()[1] for line in result.stdout.splitlines() if line.strip()}
         if result.returncode == _NO_KEYS:
             return set()
         if result.returncode == _NO_AGENT:
             return None
         raise SandboxError(f"could not list the sandbox's keys: {result.stderr.strip()}")
-
-    def fingerprints(self, ssh_add_lines: Sequence[str]) -> set[str]:
-        """Fingerprints from ``ssh-add -l`` lines: ``<bits> <fingerprint> <comment> (<type>)``."""
-        return {line.split()[1] for line in ssh_add_lines if line.strip()}
 
     def run_args(self, name: str, agent_args: Sequence[str]) -> tuple[str, ...]:
         """``sbx run`` for an existing sandbox.

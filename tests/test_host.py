@@ -131,3 +131,10 @@ def test_ensure_file_exists_accepts_a_file(host, tmp_path):
 def test_ensure_file_exists_refuses_a_directory(host, tmp_path):
     with pytest.raises(SandboxError, match="is not a file"):
         host.ensure_file_exists(tmp_path, "ssh key")
+
+
+# --- public_key_path -----------------------------------------------------------
+
+
+def test_public_key_path_appends_pub(host):
+    assert host.public_key_path(Path("/home/dev/.ssh/id_ed25519")) == Path("/home/dev/.ssh/id_ed25519.pub")

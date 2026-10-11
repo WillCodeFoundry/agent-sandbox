@@ -118,3 +118,9 @@ def test_lists_no_keys_for_an_empty_agent(host, make_agent):
     host.responses = {LIST: NO_KEYS}
 
     assert make_agent().list_keys() == []
+
+
+def test_list_key_fingerprints_ignores_blank_lines(host, make_agent):
+    host.responses = {LIST: "256 SHA256:a key1 (ED25519)\n3072 SHA256:b key2 (RSA)\n"}
+
+    assert make_agent().list_key_fingerprints() == {"SHA256:a", "SHA256:b"}

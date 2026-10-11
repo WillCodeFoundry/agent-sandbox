@@ -109,7 +109,7 @@ def run_prepare(
         git_email=git_email,
     )
     ensure_valid_args(args, host)
-    return prepare_sbx_execution(args, config, Sbx(host, env), ssh_agent, env)
+    return prepare_sbx_execution(args, config, Sbx(host, env), ssh_agent, env, host)
 
 
 def with_ssh_key(host, ssh_key):

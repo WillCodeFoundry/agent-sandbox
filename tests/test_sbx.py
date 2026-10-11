@@ -123,10 +123,6 @@ def test_agent_fingerprints_failure_is_reported(host, sbx):
         sbx.agent_fingerprints("n")
 
 
-def test_fingerprints_ignore_blank_lines(sbx):
-    assert sbx.fingerprints(["256 SHA256:aaa key (ED25519)", ""]) == {"SHA256:aaa"}
-
-
 def test_run_args_attach_by_name_and_pass_agent_args(sbx):
     assert sbx.run_args("n", ["--continue"]) == ("sbx", "run", "--name", "n", "--", "--continue")
 

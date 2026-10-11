@@ -148,15 +148,15 @@ def parse_args(argv: Sequence[str]) -> Arguments:
 
 
 def prepare_sbx_execution(
-    args: Arguments, config: Config, sbx: Sbx, ssh_agent: SshAgent, env: Mapping[str, str]
+    args: Arguments, config: Config, sbx: Sbx, ssh_agent: SshAgent, env: Mapping[str, str], host: HostPort
 ) -> CommandToExecute:
     """Synchronize the sandbox and describe what running it will do. Call ensure_valid_args(args, host) first.
 
     ``env`` is what the final command runs under; it must be what ``sbx`` was built with.
     """
     ensure_ssh_agent_running(args, ssh_agent)
-    ensure_sandbox_present(args, config, sbx)
-    check_forwarded_keys(sbx.fingerprints(ssh_agent.list_keys()), sbx.agent_fingerprints(args.name))
+    ensure_sandbox_present(args, config, sbx, host)
+    ensure_forwarded_keys(ssh_agent, sbx, args.name)
     message = describe(args, ssh_agent)
     command = sbx.run_args(args.name, args.agent_args)
     return CommandToExecute(command, env=env, message=message)
@@ -168,7 +168,7 @@ def ensure_ssh_agent_running(args: Arguments, ssh_agent: SshAgent) -> None:
     ssh_agent.replace_keys([args.ssh_key] if args.ssh_key is not None else [])
 
 
-def ensure_sandbox_present(args: Arguments, config: Config, sbx: Sbx) -> None:
+def ensure_sandbox_present(args: Arguments, config: Config, sbx: Sbx, host: HostPort) -> None:
     """Make the sandbox exist and match args: github token, git identity, commit signing."""
     if not sbx.exists(args.name):
         sbx.create(args.name, config.agent, args.workspace, args.context)
@@ -178,7 +178,7 @@ def ensure_sandbox_present(args: Arguments, config: Config, sbx: Sbx) -> None:
         sbx.clear_github_token(args.name)
 
     ssh_key = args.ssh_key
-    public_key = public_key_path(ssh_key).read_text().strip() if ssh_key is not None else None
+    public_key = host.public_key_path(ssh_key).read_text().strip() if ssh_key is not None else None
     # Blank values make git refuse to commit/sign, so a launch without an
     # identity or key never leaves a previous launch's configuration behind.
     git_config = [
@@ -214,16 +214,6 @@ def describe(args: Arguments, ssh_agent: SshAgent) -> str:
     return "\n".join(f"==> {note}" for note in notes)
 
 
-def public_key_path(ssh_key: Path) -> Path:
-    """Where ssh-keygen puts the public half of a private key, by naming convention."""
-    return ssh_key.with_name(ssh_key.name + ".pub")
-
-
-def is_nested_dir(a: Path, b: Path) -> bool:
-    """Whether a and b are the same path, or one is nested inside the other."""
-    return a.is_relative_to(b) or b.is_relative_to(a)
-
-
 def ensure_paths_safe(workspace: Path, context: Path, ssh_key: Path | None) -> None:
     """Refuse layouts that would undo the sandbox's protections.
 
@@ -236,7 +226,7 @@ def ensure_paths_safe(workspace: Path, context: Path, ssh_key: Path | None) -> N
     if ":" in str(context):
         raise SandboxError(f"context path {str(context)!r} contains ':'")
     # Keep the context's read-only mount independent of the workspace's.
-    if is_nested_dir(workspace, context):
+    if workspace.is_relative_to(context) or context.is_relative_to(workspace):
         raise SandboxError(f"context {str(context)!r} overlaps workspace {str(workspace)!r}")
     # The ssh key the sandbox can read could be copied out, bypassing the agent.
     if ssh_key is not None and ssh_key.is_relative_to(workspace):
@@ -255,11 +245,13 @@ def ensure_valid_args(args: Arguments, host: HostPort) -> None:
     if args.github_token_file is not None:
         host.ensure_file_exists(args.github_token_file, "github token file")
     if args.ssh_key is not None:
-        host.ensure_file_exists(public_key_path(args.ssh_key), "public key")
+        host.ensure_file_exists(host.public_key_path(args.ssh_key), "public key")
 
 
-def check_forwarded_keys(expected: set[str], seen: set[str] | None) -> None:
+def ensure_forwarded_keys(ssh_agent: SshAgent, sbx: Sbx, name: str) -> None:
     """The sandbox must see exactly the keys we loaded, whatever sbx's settings claim."""
+    expected = ssh_agent.list_key_fingerprints()
+    seen = sbx.agent_fingerprints(name)
     if seen is None and not expected:
         return  # no agent at all: nothing of ours, or anyone else's, reaches the sandbox
     if seen != expected:
@@ -283,7 +275,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # A socket in a directory someone else controls could be their agent, not ours.
         host.ensure_private_dir(socket.parent)
         ensure_valid_args(args, host)
-        cmd = prepare_sbx_execution(args, config, Sbx(host, env), ssh_agent, env)
+        cmd = prepare_sbx_execution(args, config, Sbx(host, env), ssh_agent, env, host)
     except SandboxError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
