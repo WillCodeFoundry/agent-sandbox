@@ -1,10 +1,19 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from agent_sandbox.cli import MAX_NAME_LENGTH, Arguments, parse_args, prepare
+from agent_sandbox.cli import (
+    MAX_NAME_LENGTH,
+    Arguments,
+    ensure_valid_args,
+    execution_description,
+    parse_args,
+    prepare_sbx_execution,
+)
 from agent_sandbox.config import Config
 from agent_sandbox.errors import SandboxError
+from agent_sandbox.host import HostPort
 from agent_sandbox.sbx import Sbx
 from agent_sandbox.ssh_agent import SshAgent
 
@@ -60,8 +69,8 @@ def github_token_file(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def socket(config: Config) -> Path:
-    return config.sockets_dir / f"{NAME}.sock"
+def socket(config: Config, host: HostPort) -> Path:
+    return host.socket_path(config.sockets_dir, NAME)
 
 
 @pytest.fixture
@@ -94,26 +103,57 @@ def run_prepare(
     git_name=None,
     git_email=None,
 ):
-    agent = SshAgent(host, socket, PERSONAL_ENV, config.uid)
+    """Run prepare_sbx_execution and report what the subsequent launch would do."""
+    host.environ_value = PERSONAL_ENV
+    ssh_agent = SshAgent(host, socket)
+    env = Sbx.env(host.environ(), socket)
+    sbx = Sbx(host, env)
     args = Arguments(
-        NAME,
-        workspace,
-        context,
-        ssh_key,
-        tuple(agent_args),
-        github_token_file,
-        git_name,
-        git_email,
+        name=NAME,
+        workspace=workspace,
+        context=context,
+        ssh_key=ssh_key,
+        agent_args=tuple(agent_args),
+        github_token_file=github_token_file,
+        git_name=git_name,
+        git_email=git_email,
     )
-    return prepare(args, config, Sbx(host, agent.env), agent)
+    ensure_valid_args(args, host)
+    prepare_sbx_execution(args, config, sbx, ssh_agent, host)
+    return SimpleNamespace(
+        command=sbx.run_args(args.name, args.agent_args),
+        env=env,
+        message=execution_description(args, ssh_agent),
+    )
 
 
 def with_ssh_key(host, ssh_key):
     """The agent holds ``ssh_key``, the sandbox sees it, and can sign commits with it."""
     host.responses[("ssh-add", "-q", str(ssh_key))] = 0
-    host.responses[LIST_KEYS] = [NO_KEYS, KEY_LINE]
+    host.responses[LIST_KEYS] = [NO_KEYS, KEY_LINE, KEY_LINE]
     host.responses[SANDBOX_LIST_KEYS] = KEY_LINE
     host.responses[signing_key_command(PUBLIC_KEY)] = 0
+
+
+@pytest.fixture
+def prepare(ready_host, config, socket, workspace, context):
+    """prepare_sbx_execution against the standard sandbox, varying only what's passed."""
+
+    def _prepare(ssh_key=None, agent_args=(), github_token_file=None, git_name=None, git_email=None):
+        return run_prepare(
+            ready_host,
+            config,
+            socket,
+            workspace,
+            context,
+            ssh_key=ssh_key,
+            agent_args=agent_args,
+            github_token_file=github_token_file,
+            git_name=git_name,
+            git_email=git_email,
+        )
+
+    return _prepare
 
 
 # --- parse_args -------------------------------------------------------------
@@ -143,14 +183,14 @@ def test_parses_all_arguments():
     )
 
     assert args == Arguments(
-        NAME,
-        Path("/src/proj"),
-        Path("ctx"),
-        Path("sk"),
-        ("--continue", "--", "x"),
-        Path("tok"),
-        "Dev",
-        "dev@example.com",
+        name=NAME,
+        workspace=Path("/src/proj").resolve(),
+        context=Path("ctx").resolve(),
+        ssh_key=Path("sk").resolve(),
+        agent_args=("--continue", "--", "x"),
+        github_token_file=Path("tok").resolve(),
+        git_name="Dev",
+        git_email="dev@example.com",
     )
 
 
@@ -225,177 +265,177 @@ def test_valid_sandbox_names(name):
 # --- prepare: launch --------------------------------------------------------
 
 
-def test_launches_sbx_with_only_the_sandboxs_agent(ready_host, config, socket, workspace, context):
-    launch = run_prepare(ready_host, config, socket, workspace, context, agent_args=["--continue"])
+def test_launches_sbx_with_only_the_sandboxs_agent(prepare, socket):
+    cmd = prepare(agent_args=["--continue"])
 
-    assert launch.command == ("sbx", "run", "--name", NAME, "--", "--continue")
-    assert launch.env == {"PATH": "/bin", "SSH_AUTH_SOCK": str(socket)}
+    assert cmd.command == ("sbx", "run", "--name", NAME, "--", "--continue")
+    assert cmd.env == {"PATH": "/bin", "SSH_AUTH_SOCK": str(socket)}
 
 
-def test_every_sbx_call_carries_the_sandboxs_socket(ready_host, config, socket, workspace, context):
-    run_prepare(ready_host, config, socket, workspace, context)
+def test_every_sbx_call_carries_the_sandboxs_socket(prepare, ready_host, socket):
+    prepare()
 
     sbx_envs = [env for command, env in ready_host.calls if command[0] == "sbx"]
     assert sbx_envs and all(env is not None and env["SSH_AUTH_SOCK"] == str(socket) for env in sbx_envs)
 
 
-def test_creates_a_missing_sandbox_before_checking_it(ready_host, config, socket, workspace, context):
+def test_creates_a_missing_sandbox_before_checking_it(prepare, ready_host, workspace, context):
     create = ("sbx", "create", "--name", NAME, "claude", f"{workspace}", f"{context}:ro")
     ready_host.responses[EXISTS] = 1
     ready_host.responses[create] = 0
 
-    run_prepare(ready_host, config, socket, workspace, context)
+    prepare()
 
     commands = ready_host.commands
     assert commands.index(create) < commands.index(SANDBOX_LIST_KEYS)
 
 
-def test_reuses_an_existing_sandbox(ready_host, config, socket, workspace, context):
-    run_prepare(ready_host, config, socket, workspace, context)
+def test_reuses_an_existing_sandbox(prepare, ready_host):
+    prepare()
 
     assert not any(command[:2] == ("sbx", "create") for command in ready_host.commands)
 
 
-def test_the_agent_holds_exactly_the_given_key(ready_host, config, socket, workspace, context, ssh_key):
+def test_the_agent_holds_exactly_the_given_key(prepare, ready_host, ssh_key):
     with_ssh_key(ready_host, ssh_key)
 
-    launch = run_prepare(ready_host, config, socket, workspace, context, ssh_key=ssh_key)
+    cmd = prepare(ssh_key=ssh_key)
 
     commands = ready_host.commands
     assert commands.index(DELETE_ALL) < commands.index(("ssh-add", "-q", str(ssh_key)))
-    assert any("test-key" in note for note in launch.notes)
+    assert "test-key" in cmd.message
 
 
-def test_warns_when_no_ssh_key_is_given(ready_host, config, socket, workspace, context):
-    launch = run_prepare(ready_host, config, socket, workspace, context)
+def test_warns_when_no_ssh_key_is_given(prepare, ready_host):
+    cmd = prepare()
 
     assert DELETE_ALL in ready_host.commands  # still emptied: no key from an earlier launch
-    assert any("holds no key" in note for note in launch.notes)
+    assert "holds no key" in cmd.message
 
 
 # --- prepare: github token ---------------------------------------------------
 
 
-def test_sets_the_sandboxs_github_token(ready_host, config, socket, workspace, context, github_token_file):
+def test_sets_the_sandboxs_github_token(prepare, ready_host, github_token_file):
     ready_host.responses[SET_TOKEN] = 0
 
-    launch = run_prepare(ready_host, config, socket, workspace, context, github_token_file=github_token_file)
+    cmd = prepare(github_token_file=github_token_file)
 
     assert SET_TOKEN in ready_host.commands
     assert CLEAR_TOKEN not in ready_host.commands
-    assert any("github" in note for note in launch.notes)
+    assert "github" in cmd.message
 
 
-def test_clears_the_sandboxs_github_token_when_not_given(ready_host, config, socket, workspace, context):
-    launch = run_prepare(ready_host, config, socket, workspace, context)
+def test_clears_the_sandboxs_github_token_when_not_given(prepare, ready_host):
+    cmd = prepare()
 
     assert CLEAR_TOKEN in ready_host.commands  # still cleared: no token from an earlier launch
     assert not any(command[:3] == ("sbx", "secret", "set") for command in ready_host.commands)
-    assert any("no token" in note for note in launch.notes)
+    assert "no token" in cmd.message
 
 
-def test_github_token_set_failure_is_reported(ready_host, config, socket, workspace, context, github_token_file):
+def test_github_token_set_failure_is_reported(prepare, ready_host, github_token_file):
     ready_host.responses[SET_TOKEN] = 1
 
     with pytest.raises(SandboxError, match="sbx secret set failed"):
-        run_prepare(ready_host, config, socket, workspace, context, github_token_file=github_token_file)
+        prepare(github_token_file=github_token_file)
 
 
-def test_github_token_clear_failure_is_reported(ready_host, config, socket, workspace, context):
+def test_github_token_clear_failure_is_reported(prepare, ready_host):
     ready_host.responses[CLEAR_TOKEN] = 1
 
     with pytest.raises(SandboxError, match="sbx secret rm failed"):
-        run_prepare(ready_host, config, socket, workspace, context)
+        prepare()
 
 
 # --- prepare: git identity ---------------------------------------------------
 
 
-def test_sets_the_sandboxs_git_identity(ready_host, config, socket, workspace, context):
+def test_sets_the_sandboxs_git_identity(prepare, ready_host):
     set_name = ("sbx", "exec", NAME, "git", "config", "--global", "user.name", "Dev")
     set_email = ("sbx", "exec", NAME, "git", "config", "--global", "user.email", "dev@example.com")
     ready_host.responses[set_name] = 0
     ready_host.responses[set_email] = 0
 
-    launch = run_prepare(ready_host, config, socket, workspace, context, git_name="Dev", git_email="dev@example.com")
+    cmd = prepare(git_name="Dev", git_email="dev@example.com")
 
     assert set_name in ready_host.commands
     assert set_email in ready_host.commands
     assert BLANK_GIT_NAME not in ready_host.commands
-    assert any("Dev <dev@example.com>" in note for note in launch.notes)
+    assert "Dev <dev@example.com>" in cmd.message
 
 
-def test_blanks_the_sandboxs_git_identity_when_not_given(ready_host, config, socket, workspace, context):
-    launch = run_prepare(ready_host, config, socket, workspace, context)
+def test_blanks_the_sandboxs_git_identity_when_not_given(prepare, ready_host):
+    cmd = prepare()
 
     # still blanked: no identity from an earlier launch, and git refuses to commit with none
     assert BLANK_GIT_NAME in ready_host.commands
     assert BLANK_GIT_EMAIL in ready_host.commands
-    assert any("not configured" in note for note in launch.notes)
+    assert "not configured" in cmd.message
 
 
-def test_git_identity_failure_is_reported(ready_host, config, socket, workspace, context):
+def test_git_identity_failure_is_reported(prepare, ready_host):
     ready_host.responses[BLANK_GIT_NAME] = 1
 
     with pytest.raises(SandboxError, match="sbx exec git config failed"):
-        run_prepare(ready_host, config, socket, workspace, context)
+        prepare()
 
 
 # --- prepare: commit signing -------------------------------------------------
 
 
-def test_signs_commits_with_the_given_ssh_key(ready_host, config, socket, workspace, context, ssh_key):
+def test_signs_commits_with_the_given_ssh_key(prepare, ready_host, ssh_key):
     with_ssh_key(ready_host, ssh_key)
 
-    launch = run_prepare(ready_host, config, socket, workspace, context, ssh_key=ssh_key)
+    cmd = prepare(ssh_key=ssh_key)
 
     assert SET_GPG_FORMAT in ready_host.commands
     assert SET_GPGSIGN in ready_host.commands
     assert signing_key_command(PUBLIC_KEY) in ready_host.commands
     assert BLANK_SIGNING_KEY not in ready_host.commands
-    assert any("ssh-signed" in note for note in launch.notes)
+    assert "ssh-signed" in cmd.message
 
 
-def test_blanks_the_signing_key_when_no_ssh_key_is_given(ready_host, config, socket, workspace, context):
-    launch = run_prepare(ready_host, config, socket, workspace, context)
+def test_blanks_the_signing_key_when_no_ssh_key_is_given(prepare, ready_host):
+    cmd = prepare()
 
     # still configured to fail: no key means no way to sign, but commit.gpgsign stays on
     assert SET_GPG_FORMAT in ready_host.commands
     assert SET_GPGSIGN in ready_host.commands
     assert BLANK_SIGNING_KEY in ready_host.commands
-    assert any("no ssh key" in note for note in launch.notes)
+    assert "no ssh key" in cmd.message
 
 
-def test_commit_signing_failure_is_reported(ready_host, config, socket, workspace, context):
+def test_commit_signing_failure_is_reported(prepare, ready_host):
     ready_host.responses[SET_GPG_FORMAT] = 1
 
     with pytest.raises(SandboxError, match="sbx exec git config failed"):
-        run_prepare(ready_host, config, socket, workspace, context)
+        prepare()
 
 
 # --- prepare: verifying what the sandbox sees -------------------------------
 
 
-def test_an_extra_key_in_the_sandbox_stops_the_launch(ready_host, config, socket, workspace, context, ssh_key):
+def test_an_extra_key_in_the_sandbox_stops_the_launch(prepare, ready_host, ssh_key):
     with_ssh_key(ready_host, ssh_key)
     ready_host.responses[SANDBOX_LIST_KEYS] = KEY_LINE + "256 SHA256:personal me@laptop (ED25519)\n"
 
     with pytest.raises(SandboxError, match="(?s)sandbox sees keys .*daemon restart"):
-        run_prepare(ready_host, config, socket, workspace, context, ssh_key=ssh_key)
+        prepare(ssh_key=ssh_key)
 
 
-def test_key_not_reaching_the_sandbox_stops_the_launch(ready_host, config, socket, workspace, context, ssh_key):
+def test_key_not_reaching_the_sandbox_stops_the_launch(prepare, ready_host, ssh_key):
     with_ssh_key(ready_host, ssh_key)
     ready_host.responses[SANDBOX_LIST_KEYS] = NO_AGENT
 
     with pytest.raises(SandboxError, match="sandbox sees no ssh-agent"):
-        run_prepare(ready_host, config, socket, workspace, context, ssh_key=ssh_key)
+        prepare(ssh_key=ssh_key)
 
 
-def test_no_agent_in_the_sandbox_is_fine_without_a_key(ready_host, config, socket, workspace, context):
+def test_no_agent_in_the_sandbox_is_fine_without_a_key(prepare, ready_host):
     ready_host.responses[SANDBOX_LIST_KEYS] = NO_AGENT
 
-    run_prepare(ready_host, config, socket, workspace, context)
+    prepare()
 
 
 # --- prepare: path checks ---------------------------------------------------

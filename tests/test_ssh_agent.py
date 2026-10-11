@@ -1,14 +1,12 @@
-import os
-
 import pytest
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.ssh_agent import SshAgent, ensure_private_dir
+from agent_sandbox.ssh_agent import SshAgent
 
 LIST = ("ssh-add", "-l")
 DELETE_ALL = ("ssh-add", "-D")
 NOT_RUNNING, NO_KEYS = 2, 1  # ssh-add -l exit codes
-PERSONAL_ENV = {"PATH": "/bin", "SSH_AUTH_SOCK": "/personal.sock", "SSH_AGENT_PID": "42"}
+PERSONAL_ENV = {"PATH": "/bin", "HOME": "/home/dev", "SSH_AUTH_SOCK": "/personal.sock", "SSH_AGENT_PID": "42"}
 
 
 @pytest.fixture
@@ -18,7 +16,8 @@ def socket(tmp_path):
 
 @pytest.fixture
 def make_agent(host, socket):
-    return lambda uid=None: SshAgent(host, socket, PERSONAL_ENV, os.getuid() if uid is None else uid)
+    host.environ_value = PERSONAL_ENV
+    return lambda: SshAgent(host, socket)
 
 
 def start(socket):
@@ -28,8 +27,12 @@ def start(socket):
 # --- environment ------------------------------------------------------------
 
 
-def test_env_points_at_this_agent_only(make_agent, socket):
-    assert make_agent().env == {"PATH": "/bin", "SSH_AUTH_SOCK": str(socket)}
+def test_ssh_add_calls_only_carry_path_and_the_sandboxs_socket(host, make_agent, socket):
+    host.responses = {LIST: NO_KEYS}
+
+    make_agent().ensure_running()
+
+    assert host.calls == [(LIST, {"PATH": "/bin", "SSH_AUTH_SOCK": str(socket)})]
 
 
 # --- ensure_running ---------------------------------------------------------
@@ -67,21 +70,6 @@ def test_reports_an_agent_that_fails_to_start(host, make_agent, socket, start_ex
 
     with pytest.raises(SandboxError, match="ssh-agent failed to start"):
         make_agent().ensure_running()
-
-
-def test_makes_the_sockets_dir_private(host, make_agent, socket):
-    host.responses = {LIST: NO_KEYS}
-
-    make_agent().ensure_running()
-
-    assert socket.parent.stat().st_mode & 0o777 == 0o700
-
-
-def test_does_not_talk_to_a_socket_in_someone_elses_dir(host, make_agent):
-    with pytest.raises(SandboxError, match="not a directory owned by you"):
-        make_agent(uid=os.getuid() + 1).ensure_running()
-
-    assert host.calls == []
 
 
 # --- keys -------------------------------------------------------------------
@@ -132,42 +120,7 @@ def test_lists_no_keys_for_an_empty_agent(host, make_agent):
     assert make_agent().list_keys() == []
 
 
-# --- ensure_private_dir -----------------------------------------------------
+def test_list_key_fingerprints_ignores_blank_lines(host, make_agent):
+    host.responses = {LIST: "256 SHA256:a key1 (ED25519)\n3072 SHA256:b key2 (RSA)\n"}
 
-
-def test_private_dir_is_created_for_the_owner_only(tmp_path):
-    ensure_private_dir(tmp_path / "sockets", os.getuid())
-
-    assert (tmp_path / "sockets").stat().st_mode & 0o777 == 0o700
-
-
-def test_private_dir_tightens_existing_permissions(tmp_path):
-    (tmp_path / "sockets").mkdir(mode=0o755)
-
-    ensure_private_dir(tmp_path / "sockets", os.getuid())
-
-    assert (tmp_path / "sockets").stat().st_mode & 0o777 == 0o700
-
-
-def test_private_dir_symlink_is_refused_and_target_untouched(tmp_path):
-    target = tmp_path / "elsewhere"
-    target.mkdir(mode=0o755)
-    (tmp_path / "sockets").symlink_to(target)
-
-    with pytest.raises(SandboxError, match="not a directory owned by you"):
-        ensure_private_dir(tmp_path / "sockets", os.getuid())
-    assert target.stat().st_mode & 0o777 == 0o755
-
-
-def test_private_dir_that_is_a_file_is_refused(tmp_path):
-    (tmp_path / "sockets").touch()
-
-    with pytest.raises(SandboxError, match="not a directory owned by you"):
-        ensure_private_dir(tmp_path / "sockets", os.getuid())
-
-
-def test_private_dir_that_is_a_dangling_symlink_is_refused(tmp_path):
-    (tmp_path / "sockets").symlink_to(tmp_path / "missing")
-
-    with pytest.raises(SandboxError, match="not a directory owned by you"):
-        ensure_private_dir(tmp_path / "sockets", os.getuid())
+    assert make_agent().list_key_fingerprints() == {"SHA256:a", "SHA256:b"}

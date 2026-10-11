@@ -1,45 +1,45 @@
 """A dedicated ssh-agent per sandbox, reachable at a fixed socket path."""
 
-import os
-import stat
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
+from enum import IntEnum
 from pathlib import Path
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import Host
+from agent_sandbox.host import HostPort
 
-# ssh-add -l exit codes
-_HAS_KEYS = 0
-_NO_KEYS = 1
+
+class SshAddExitCode(IntEnum):
+    """Exit codes from ``ssh-add -l``, wherever it's run - directly against this
+    agent, or inside the sandbox against whatever agent is forwarded there.
+    """
+
+    HAS_KEYS = 0
+    NO_KEYS = 1
+    NO_AGENT = 2
 
 
 class SshAgent:
-    """An ssh-agent bound to ``socket``, reused across launches of one sandbox.
+    """An ssh-agent bound to ``socket``, reused across launches of one sandbox."""
 
-    ``environ`` is the caller's environment; the agent's own environment is
-    derived from it with the personal agent replaced by this one.
-    """
-
-    def __init__(self, host: Host, socket: Path, environ: Mapping[str, str], uid: int) -> None:
+    def __init__(self, host: HostPort, socket: Path) -> None:
         self._host = host
-        self._uid = uid
         self.socket = socket
-        self.env = {key: value for key, value in environ.items() if key != "SSH_AGENT_PID"}
-        self.env["SSH_AUTH_SOCK"] = str(socket)
 
     def ensure_running(self) -> None:
-        """Start the agent unless one already answers on the socket."""
-        # Check the directory before talking to anything in it: a socket in a
-        # directory someone else controls could be their agent, not ours.
-        ensure_private_dir(self.socket.parent, self._uid)
+        """Start the agent unless one already answers on the socket.
+
+        The caller must have already made ``socket``'s directory private to
+        this user - a socket in a directory someone else controls could be
+        their agent, not ours.
+        """
         if self._is_running():
             return
 
-        self.socket.unlink(missing_ok=True)  # stale socket from a dead agent
+        self._host.reset_socket(self.socket)  # stale socket from a dead agent
         # The env script ssh-agent prints is ignored on purpose: nothing in
         # this process should start using the sandbox's agent by accident.
-        result = self._host.run(["ssh-agent", "-a", str(self.socket), "-s"])
+        result = self._host.run(("ssh-agent", "-a", str(self.socket), "-s"))
         if result.returncode != 0 or not self._is_running():
             raise SandboxError(f"ssh-agent failed to start on {self.socket}")
 
@@ -59,27 +59,23 @@ class SshAgent:
 
     def list_keys(self) -> list[str]:
         result = self._ssh_add("-l")
-        return result.stdout.splitlines() if result.returncode == _HAS_KEYS else []
+        return result.stdout.splitlines() if result.returncode == SshAddExitCode.HAS_KEYS else []
+
+    def list_key_fingerprints(self) -> set[str]:
+        return {self.parse_fingerprint(line) for line in self.list_keys() if line.strip()}
+
+    @staticmethod
+    def parse_fingerprint(ssh_add_line: str) -> str:
+        """The fingerprint from one ``ssh-add -l`` line: ``<bits> <fingerprint> <comment> (<type>)``."""
+        return ssh_add_line.split()[1]
 
     def _is_running(self) -> bool:
-        return self._ssh_add("-l").returncode in (_HAS_KEYS, _NO_KEYS)
+        return self._ssh_add("-l").returncode in (SshAddExitCode.HAS_KEYS, SshAddExitCode.NO_KEYS)
 
     def _ssh_add(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return self._host.run(["ssh-add", *args], env=self.env)
-
-
-def ensure_private_dir(path: Path, uid: int) -> None:
-    """Create ``path`` as a directory only ``uid`` can use, refusing one we don't own.
-
-    The sockets directory lives in /tmp, which is shared: another user could
-    create it first, or put a symlink there pointing somewhere they control.
-    """
-    try:
-        path.mkdir(mode=0o700, exist_ok=True)
-        info = os.lstat(path)
-        ours = stat.S_ISDIR(info.st_mode) and info.st_uid == uid
-    except FileExistsError:  # a file, or a dangling symlink
-        ours = False
-    if not ours:
-        raise SandboxError(f"{path} is not a directory owned by you")
-    path.chmod(0o700)
+        # ssh-add only needs to find itself and reach the right agent - nothing else.
+        environ = self._host.environ()
+        env = {"SSH_AUTH_SOCK": str(self.socket)}
+        if "PATH" in environ:
+            env["PATH"] = environ["PATH"]
+        return self._host.run(("ssh-add", *args), env=env)

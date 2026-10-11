@@ -5,12 +5,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.host import Host
-
-# ssh-add -l exit codes, as seen inside the sandbox
-_HAS_KEYS = 0
-_NO_KEYS = 1
-_NO_AGENT = 2
+from agent_sandbox.host import HostPort
+from agent_sandbox.ssh_agent import SshAddExitCode, SshAgent
 
 
 class Sbx:
@@ -21,9 +17,20 @@ class Sbx:
     so no call may carry another socket.
     """
 
-    def __init__(self, host: Host, env: Mapping[str, str]) -> None:
+    def __init__(self, host: HostPort, env: Mapping[str, str]) -> None:
         self._host = host
         self._env = env
+
+    @staticmethod
+    def env(environ: Mapping[str, str], socket: Path) -> dict[str, str]:
+        """The environment every call aimed at the sandbox must carry: its own agent socket.
+
+        sbx points a sandbox's forwarded agent at SSH_AUTH_SOCK, so no call may
+        carry another socket - including the final exec into ``sbx run``.
+        """
+        env = {key: value for key, value in environ.items() if key != "SSH_AGENT_PID"}
+        env["SSH_AUTH_SOCK"] = str(socket)
+        return env
 
     def exists(self, name: str) -> bool:
         return self._sbx("exec", name, "true").returncode == 0
@@ -43,50 +50,30 @@ class Sbx:
         if result.returncode != 0:
             raise SandboxError(f"sbx secret rm failed: {result.stderr.strip()}")
 
-    def set_git_identity(self, name: str, user_name: str, email: str) -> None:
-        """Set the sandbox's global git identity; empty values make git refuse to commit."""
-        for key, value in [("user.name", user_name), ("user.email", email)]:
-            result = self._sbx("exec", name, "git", "config", "--global", key, value)
-            if result.returncode != 0:
-                raise SandboxError(f"sbx exec git config failed: {result.stderr.strip()}")
-
-    def set_commit_signing(self, name: str, public_key: str) -> None:
-        """Sign commits with ``public_key`` via the forwarded agent; blank, refuses to commit."""
-        settings = [
-            ("gpg.format", "ssh"),
-            ("commit.gpgsign", "true"),
-            ("user.signingkey", f"key::{public_key}" if public_key else ""),
-        ]
-        for key, value in settings:
-            result = self._sbx("exec", name, "git", "config", "--global", key, value)
-            if result.returncode != 0:
-                raise SandboxError(f"sbx exec git config failed: {result.stderr.strip()}")
+    def set_git_config(self, name: str, key: str, value: str) -> None:
+        result = self._sbx("exec", name, "git", "config", "--global", key, value)
+        if result.returncode != 0:
+            raise SandboxError(f"sbx exec git config failed: {result.stderr.strip()}")
 
     def agent_fingerprints(self, name: str) -> set[str] | None:
         """Fingerprints of the keys the sandbox's agent offers, or None if no agent reaches it."""
         result = self._sbx("exec", name, "ssh-add", "-l")
-        if result.returncode == _HAS_KEYS:
-            return fingerprints(result.stdout.splitlines())
-        if result.returncode == _NO_KEYS:
+        if result.returncode == SshAddExitCode.HAS_KEYS:
+            return {SshAgent.parse_fingerprint(line) for line in result.stdout.splitlines() if line.strip()}
+        if result.returncode == SshAddExitCode.NO_KEYS:
             return set()
-        if result.returncode == _NO_AGENT:
+        if result.returncode == SshAddExitCode.NO_AGENT:
             return None
         raise SandboxError(f"could not list the sandbox's keys: {result.stderr.strip()}")
 
+    def run_args(self, name: str, agent_args: Sequence[str]) -> tuple[str, ...]:
+        """``sbx run`` for an existing sandbox.
+
+        The sandbox is always created first, and sbx refuses workspace paths when
+        attaching to an existing sandbox: its mounts are fixed at creation.
+        """
+        args = ("sbx", "run", "--name", name)
+        return (*args, "--", *agent_args) if agent_args else args
+
     def _sbx(self, *args: str) -> subprocess.CompletedProcess[str]:
-        return self._host.run(["sbx", *args], env=self._env)
-
-
-def fingerprints(ssh_add_lines: Sequence[str]) -> set[str]:
-    """Fingerprints from ``ssh-add -l`` lines: ``<bits> <fingerprint> <comment> (<type>)``."""
-    return {line.split()[1] for line in ssh_add_lines if line.strip()}
-
-
-def sbx_run_args(name: str, agent_args: Sequence[str]) -> tuple[str, ...]:
-    """``sbx run`` for an existing sandbox.
-
-    The sandbox is always created first, and sbx refuses workspace paths when
-    attaching to an existing sandbox: its mounts are fixed at creation.
-    """
-    args = ("sbx", "run", "--name", name)
-    return (*args, "--", *agent_args) if agent_args else args
+        return self._host.run(("sbx", *args), env=self._env)

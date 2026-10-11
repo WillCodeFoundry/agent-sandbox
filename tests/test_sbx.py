@@ -3,12 +3,13 @@ from pathlib import Path
 import pytest
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.sbx import Sbx, fingerprints, sbx_run_args
+from agent_sandbox.sbx import Sbx
 
 SANDBOX_ENV = {"PATH": "/bin", "SSH_AUTH_SOCK": "/sockets/n.sock"}
 EXISTS = ("sbx", "exec", "n", "true")
 LIST = ("sbx", "exec", "n", "ssh-add", "-l")
 CREATE = ("sbx", "create", "--name", "n", "claude", "/w", "/ctx:ro")
+SET_NAME = ("sbx", "exec", "n", "git", "config", "--global", "user.name", "Dev")
 
 
 @pytest.fixture
@@ -82,52 +83,19 @@ def test_clear_github_token_failure_is_reported(host, sbx):
         sbx.clear_github_token("n")
 
 
-def test_set_git_identity(host, sbx):
-    set_name = ("sbx", "exec", "n", "git", "config", "--global", "user.name", "Dev")
-    set_email = ("sbx", "exec", "n", "git", "config", "--global", "user.email", "dev@example.com")
-    host.responses = {set_name: 0, set_email: 0}
+def test_set_git_config(host, sbx):
+    host.responses = {SET_NAME: 0}
 
-    sbx.set_git_identity("n", "Dev", "dev@example.com")
+    sbx.set_git_config("n", "user.name", "Dev")
 
-    assert host.commands == [set_name, set_email]
+    assert host.commands == [SET_NAME]
 
 
-def test_set_git_identity_failure_is_reported(host, sbx):
-    set_name = ("sbx", "exec", "n", "git", "config", "--global", "user.name", "Dev")
-    host.responses = {set_name: 1}
+def test_set_git_config_failure_is_reported(host, sbx):
+    host.responses = {SET_NAME: 1}
 
     with pytest.raises(SandboxError, match="sbx exec git config failed"):
-        sbx.set_git_identity("n", "Dev", "dev@example.com")
-
-
-def test_set_commit_signing(host, sbx):
-    set_format = ("sbx", "exec", "n", "git", "config", "--global", "gpg.format", "ssh")
-    set_gpgsign = ("sbx", "exec", "n", "git", "config", "--global", "commit.gpgsign", "true")
-    set_signingkey = ("sbx", "exec", "n", "git", "config", "--global", "user.signingkey", "key::pub")
-    host.responses = {set_format: 0, set_gpgsign: 0, set_signingkey: 0}
-
-    sbx.set_commit_signing("n", "pub")
-
-    assert host.commands == [set_format, set_gpgsign, set_signingkey]
-
-
-def test_set_commit_signing_blanks_the_signing_key_when_no_public_key_is_given(host, sbx):
-    set_format = ("sbx", "exec", "n", "git", "config", "--global", "gpg.format", "ssh")
-    set_gpgsign = ("sbx", "exec", "n", "git", "config", "--global", "commit.gpgsign", "true")
-    blank_signingkey = ("sbx", "exec", "n", "git", "config", "--global", "user.signingkey", "")
-    host.responses = {set_format: 0, set_gpgsign: 0, blank_signingkey: 0}
-
-    sbx.set_commit_signing("n", "")
-
-    assert host.commands == [set_format, set_gpgsign, blank_signingkey]
-
-
-def test_set_commit_signing_failure_is_reported(host, sbx):
-    set_format = ("sbx", "exec", "n", "git", "config", "--global", "gpg.format", "ssh")
-    host.responses = {set_format: 1}
-
-    with pytest.raises(SandboxError, match="sbx exec git config failed"):
-        sbx.set_commit_signing("n", "pub")
+        sbx.set_git_config("n", "user.name", "Dev")
 
 
 def test_agent_fingerprints_of_the_sandboxs_keys(host, sbx):
@@ -155,13 +123,16 @@ def test_agent_fingerprints_failure_is_reported(host, sbx):
         sbx.agent_fingerprints("n")
 
 
-def test_fingerprints_ignore_blank_lines():
-    assert fingerprints(["256 SHA256:aaa key (ED25519)", ""]) == {"SHA256:aaa"}
+def test_run_args_attach_by_name_and_pass_agent_args(sbx):
+    assert sbx.run_args("n", ["--continue"]) == ("sbx", "run", "--name", "n", "--", "--continue")
 
 
-def test_sbx_run_args_attach_by_name_and_pass_agent_args():
-    assert sbx_run_args("n", ["--continue"]) == ("sbx", "run", "--name", "n", "--", "--continue")
+def test_run_args_without_agent_args(sbx):
+    assert sbx.run_args("n", []) == ("sbx", "run", "--name", "n")
 
 
-def test_sbx_run_args_without_agent_args():
-    assert sbx_run_args("n", []) == ("sbx", "run", "--name", "n")
+def test_env_carries_the_sandboxs_socket_and_drops_the_personal_agent_pid():
+    assert Sbx.env({"PATH": "/bin", "SSH_AGENT_PID": "42"}, Path("/sockets/n.sock")) == {
+        "PATH": "/bin",
+        "SSH_AUTH_SOCK": "/sockets/n.sock",
+    }
