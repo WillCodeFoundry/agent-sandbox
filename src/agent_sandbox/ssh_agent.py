@@ -11,7 +11,8 @@ from agent_sandbox.host import HostPort
 
 class SshAddExitCode(IntEnum):
     """Exit codes from ``ssh-add -l``, wherever it's run - directly against this
-    agent, or inside the sandbox against whatever agent is forwarded there."""
+    agent, or inside the sandbox against whatever agent is forwarded there.
+    """
 
     HAS_KEYS = 0
     NO_KEYS = 1

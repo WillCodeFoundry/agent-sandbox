@@ -16,7 +16,7 @@ from agent_sandbox.sbx import Sbx
 from agent_sandbox.ssh_agent import SshAgent
 
 # What sbx accepts in a sandbox name, starting with a letter or digit. The name
-# also names the agent's socket file, so this keeps out "/" and "..".
+# also names the ssh-agent's socket file, so this keeps out "/" and "..".
 NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+-]*")
 # Unix socket paths are limited to about 104 bytes on macOS (108 on Linux).
 MAX_NAME_LENGTH = 64
@@ -139,6 +139,40 @@ def parse_args(argv: Sequence[str]) -> Arguments:
     )
 
 
+def ensure_paths_safe(workspace: Path, context: Path, ssh_key: Path | None) -> None:
+    """Refuse layouts that would undo the sandbox's protections.
+
+    workspace, context and ssh_key must already be resolved, so aliasing through a
+    relative form can't slip past these checks.
+    """
+    # sbx reads a trailing ":ro" off its path arguments; a ":" in the path is ambiguous.
+    if ":" in str(workspace):
+        raise SandboxError(f"workspace path {str(workspace)!r} contains ':'")
+    if ":" in str(context):
+        raise SandboxError(f"context path {str(context)!r} contains ':'")
+    # Keep the context's read-only mount independent of the workspace's.
+    if workspace.is_relative_to(context) or context.is_relative_to(workspace):
+        raise SandboxError(f"context {str(context)!r} overlaps workspace {str(workspace)!r}")
+    # The ssh key the sandbox can read could be copied out, bypassing the agent.
+    if ssh_key is not None and ssh_key.is_relative_to(workspace):
+        raise SandboxError(f"ssh key {str(ssh_key)!r} is inside the workspace, readable by the sandbox")
+    if ssh_key is not None and ssh_key.is_relative_to(context):
+        raise SandboxError(f"ssh key {str(ssh_key)!r} is inside the context, readable by the sandbox")
+
+
+def ensure_valid_args(args: Arguments, host: HostPort) -> None:
+    """Raise if anything about args would undo the sandbox's protections or doesn't exist."""
+    host.ensure_dir_exists(args.workspace, "workspace")
+    host.ensure_dir_exists(args.context, "context")
+    if args.ssh_key is not None:
+        host.ensure_file_exists(args.ssh_key, "ssh key")
+    ensure_paths_safe(args.workspace, args.context, args.ssh_key)
+    if args.github_token_file is not None:
+        host.ensure_file_exists(args.github_token_file, "github token file")
+    if args.ssh_key is not None:
+        host.ensure_file_exists(host.public_key_path(args.ssh_key), "public key")
+
+
 def prepare_sbx_execution(args: Arguments, config: Config, sbx: Sbx, ssh_agent: SshAgent, host: HostPort) -> None:
     """Synchronize the sandbox and its ssh-agent with args, and verify what the sandbox can see.
 
@@ -179,6 +213,22 @@ def ensure_sandbox_present(args: Arguments, config: Config, sbx: Sbx, host: Host
         sbx.set_git_config(args.name, key, value)
 
 
+def ensure_forwarded_keys(ssh_agent: SshAgent, sbx: Sbx, name: str) -> None:
+    """The sandbox must see exactly the keys we loaded, whatever sbx's settings claim."""
+    expected = ssh_agent.list_key_fingerprints()
+    seen = sbx.agent_fingerprints(name)
+    if seen is None and not expected:
+        return  # no agent at all: nothing of ours, or anyone else's, reaches the sandbox
+    if seen != expected:
+        found = "no ssh-agent" if seen is None else f"keys {sorted(seen)}"
+        raise SandboxError(
+            f"the sandbox sees {found}, expected {sorted(expected) or 'no keys'}.\n"
+            "  check: sbx settings get ssh.agentForwardingEnabled  (must be true)\n"
+            "         sbx settings get ssh.agentSocketPath         (must be empty)\n"
+            "  then:  sbx daemon restart"
+        )
+
+
 def execution_description(args: Arguments, ssh_agent: SshAgent) -> str:
     """Build the message describing what running args will do, ready to log as-is."""
     loaded = ssh_agent.list_keys()
@@ -199,56 +249,6 @@ def execution_description(args: Arguments, ssh_agent: SshAgent) -> str:
     )
     # fmt: on
     return "\n".join(f"==> {note}" for note in notes)
-
-
-def ensure_paths_safe(workspace: Path, context: Path, ssh_key: Path | None) -> None:
-    """Refuse layouts that would undo the sandbox's protections.
-
-    workspace, context and ssh_key must already be resolved, so aliasing through a
-    relative form can't slip past these checks.
-    """
-    # sbx reads a trailing ":ro" off its path arguments; a ":" in the path is ambiguous.
-    if ":" in str(workspace):
-        raise SandboxError(f"workspace path {str(workspace)!r} contains ':'")
-    if ":" in str(context):
-        raise SandboxError(f"context path {str(context)!r} contains ':'")
-    # Keep the context's read-only mount independent of the workspace's.
-    if workspace.is_relative_to(context) or context.is_relative_to(workspace):
-        raise SandboxError(f"context {str(context)!r} overlaps workspace {str(workspace)!r}")
-    # The ssh key the sandbox can read could be copied out, bypassing the agent.
-    if ssh_key is not None and ssh_key.is_relative_to(workspace):
-        raise SandboxError(f"ssh key {str(ssh_key)!r} is inside the workspace, readable by the sandbox")
-    if ssh_key is not None and ssh_key.is_relative_to(context):
-        raise SandboxError(f"ssh key {str(ssh_key)!r} is inside the context, readable by the sandbox")
-
-
-def ensure_valid_args(args: Arguments, host: HostPort) -> None:
-    """Raise if anything about args would undo the sandbox's protections or doesn't exist."""
-    host.ensure_dir_exists(args.workspace, "workspace")
-    host.ensure_dir_exists(args.context, "context")
-    if args.ssh_key is not None:
-        host.ensure_file_exists(args.ssh_key, "ssh key")
-    ensure_paths_safe(args.workspace, args.context, args.ssh_key)
-    if args.github_token_file is not None:
-        host.ensure_file_exists(args.github_token_file, "github token file")
-    if args.ssh_key is not None:
-        host.ensure_file_exists(host.public_key_path(args.ssh_key), "public key")
-
-
-def ensure_forwarded_keys(ssh_agent: SshAgent, sbx: Sbx, name: str) -> None:
-    """The sandbox must see exactly the keys we loaded, whatever sbx's settings claim."""
-    expected = ssh_agent.list_key_fingerprints()
-    seen = sbx.agent_fingerprints(name)
-    if seen is None and not expected:
-        return  # no agent at all: nothing of ours, or anyone else's, reaches the sandbox
-    if seen != expected:
-        found = "no ssh-agent" if seen is None else f"keys {sorted(seen)}"
-        raise SandboxError(
-            f"the sandbox sees {found}, expected {sorted(expected) or 'no keys'}.\n"
-            "  check: sbx settings get ssh.agentForwardingEnabled  (must be true)\n"
-            "         sbx settings get ssh.agentSocketPath         (must be empty)\n"
-            "  then:  sbx daemon restart"
-        )
 
 
 def launch_sbx(sbx: Sbx, args: Arguments, env: Mapping[str, str], host: HostPort) -> NoReturn:
