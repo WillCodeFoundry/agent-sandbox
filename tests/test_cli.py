@@ -198,7 +198,7 @@ def test_ssh_key_is_optional():
     assert parse_args(["--name", "n", "--context", "ctx", "/src/proj"]).ssh_key is None
 
 
-def test_ssh_key_may_only_be_given_once():
+def test_ssh_key_may_only_be_given_once(capsys):
     with pytest.raises(SystemExit):
         parse_args(
             [
@@ -213,6 +213,8 @@ def test_ssh_key_may_only_be_given_once():
                 "/src/proj",
             ]
         )
+
+    assert "--ssh-key may only be given once" in capsys.readouterr().err
 
 
 def test_github_token_file_is_optional():
@@ -304,6 +306,7 @@ def test_the_agent_holds_exactly_the_given_key(prepare, ready_host, ssh_key):
     commands = ready_host.commands
     assert commands.index(DELETE_ALL) < commands.index(("ssh-add", "-q", str(ssh_key)))
     assert "test-key" in cmd.message
+    assert "holds no key" not in cmd.message
 
 
 def test_warns_when_no_ssh_key_is_given(prepare, ready_host):
@@ -323,7 +326,8 @@ def test_sets_the_sandboxs_github_token(prepare, ready_host, github_token_file):
 
     assert SET_TOKEN in ready_host.commands
     assert CLEAR_TOKEN not in ready_host.commands
-    assert "github" in cmd.message
+    assert "token configured" in cmd.message
+    assert "no token" not in cmd.message
 
 
 def test_clears_the_sandboxs_github_token_when_not_given(prepare, ready_host):
@@ -363,6 +367,7 @@ def test_sets_the_sandboxs_git_identity(prepare, ready_host):
     assert set_email in ready_host.commands
     assert BLANK_GIT_NAME not in ready_host.commands
     assert "Dev <dev@example.com>" in cmd.message
+    assert "not configured" not in cmd.message
 
 
 def test_blanks_the_sandboxs_git_identity_when_not_given(prepare, ready_host):
@@ -394,6 +399,7 @@ def test_signs_commits_with_the_given_ssh_key(prepare, ready_host, ssh_key):
     assert signing_key_command(PUBLIC_KEY) in ready_host.commands
     assert BLANK_SIGNING_KEY not in ready_host.commands
     assert "ssh-signed" in cmd.message
+    assert "no ssh key" not in cmd.message
 
 
 def test_blanks_the_signing_key_when_no_ssh_key_is_given(prepare, ready_host):

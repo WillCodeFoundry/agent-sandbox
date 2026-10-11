@@ -120,6 +120,14 @@ def test_lists_no_keys_for_an_empty_agent(host, make_agent):
     assert make_agent().list_keys() == []
 
 
+def test_lists_no_keys_when_the_exit_code_says_so_even_with_stdout(host, make_agent):
+    # A real ssh-add never does this; the point is to pin the check on the exit
+    # code itself, not on stdout happening to be empty for NO_KEYS in other tests.
+    host.responses = {LIST: (NO_KEYS, "256 SHA256:a key1 (ED25519)\n")}
+
+    assert make_agent().list_keys() == []
+
+
 def test_list_key_fingerprints_ignores_blank_lines(host, make_agent):
     host.responses = {LIST: "256 SHA256:a key1 (ED25519)\n3072 SHA256:b key2 (RSA)\n"}
 

@@ -9,7 +9,7 @@ import pytest
 from agent_sandbox.config import Config
 from agent_sandbox.host import Host, HostPort
 
-Response = str | int
+Response = str | int | tuple[int, str]
 
 
 class ExecCalled(Exception):
@@ -23,8 +23,9 @@ class ExecCalled(Exception):
 class FakeHost(Host):
     """Answers commands from ``responses`` and records them in ``calls``.
 
-    A response is stdout (str, exit 0), an exit code (int), or a list of
-    those, used in turn. An unexpected command raises KeyError.
+    A response is stdout (str, exit 0), an exit code (int), an (exit code,
+    stdout) pair, or a list of those, used in turn. An unexpected command
+    raises KeyError.
 
     Only ``run``/``exec``/``environ`` are faked. Everything else (filesystem
     safety checks, path naming) is inherited from the real ``Host``
@@ -44,6 +45,9 @@ class FakeHost(Host):
         response = self.responses[command]
         if isinstance(response, list):
             response = response.pop(0)
+        if isinstance(response, tuple):
+            returncode, stdout = response
+            return subprocess.CompletedProcess(command, returncode, stdout=stdout, stderr="")
         if isinstance(response, int):
             return subprocess.CompletedProcess(command, response, stdout="", stderr="")
         return subprocess.CompletedProcess(command, 0, stdout=response, stderr="")
