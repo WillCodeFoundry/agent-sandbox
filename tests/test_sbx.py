@@ -10,11 +10,6 @@ EXISTS = ("sbx", "exec", "n", "true")
 LIST = ("sbx", "exec", "n", "ssh-add", "-l")
 CREATE = ("sbx", "create", "--name", "n", "claude", "/w", "/ctx:ro")
 SET_NAME = ("sbx", "exec", "n", "git", "config", "--global", "user.name", "Dev")
-SET_EMAIL = ("sbx", "exec", "n", "git", "config", "--global", "user.email", "dev@example.com")
-SET_GPG_FORMAT = ("sbx", "exec", "n", "git", "config", "--global", "gpg.format", "ssh")
-SET_GPGSIGN = ("sbx", "exec", "n", "git", "config", "--global", "commit.gpgsign", "true")
-SET_SIGNINGKEY = ("sbx", "exec", "n", "git", "config", "--global", "user.signingkey", "key::pub")
-BLANK_SIGNINGKEY = ("sbx", "exec", "n", "git", "config", "--global", "user.signingkey", "")
 
 
 @pytest.fixture
@@ -101,44 +96,6 @@ def test_set_git_config_failure_is_reported(host, sbx):
 
     with pytest.raises(SandboxError, match="sbx exec git config failed"):
         sbx.set_git_config("n", "user.name", "Dev")
-
-
-def test_set_git_identity(host, sbx):
-    host.responses = {SET_NAME: 0, SET_EMAIL: 0}
-
-    sbx.set_git_identity("n", "Dev", "dev@example.com")
-
-    assert host.commands == [SET_NAME, SET_EMAIL]
-
-
-def test_set_git_identity_failure_is_reported(host, sbx):
-    host.responses = {SET_NAME: 1}
-
-    with pytest.raises(SandboxError, match="sbx exec git config failed"):
-        sbx.set_git_identity("n", "Dev", "dev@example.com")
-
-
-def test_set_commit_signing(host, sbx):
-    host.responses = {SET_GPG_FORMAT: 0, SET_GPGSIGN: 0, SET_SIGNINGKEY: 0}
-
-    sbx.set_commit_signing("n", "pub")
-
-    assert host.commands == [SET_GPG_FORMAT, SET_GPGSIGN, SET_SIGNINGKEY]
-
-
-def test_set_commit_signing_blanks_the_signing_key_when_no_public_key_is_given(host, sbx):
-    host.responses = {SET_GPG_FORMAT: 0, SET_GPGSIGN: 0, BLANK_SIGNINGKEY: 0}
-
-    sbx.set_commit_signing("n", "")
-
-    assert host.commands == [SET_GPG_FORMAT, SET_GPGSIGN, BLANK_SIGNINGKEY]
-
-
-def test_set_commit_signing_failure_is_reported(host, sbx):
-    host.responses = {SET_GPG_FORMAT: 1}
-
-    with pytest.raises(SandboxError, match="sbx exec git config failed"):
-        sbx.set_commit_signing("n", "pub")
 
 
 def test_agent_fingerprints_of_the_sandboxs_keys(host, sbx):

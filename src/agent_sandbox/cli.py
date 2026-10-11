@@ -170,8 +170,17 @@ def apply(args: Arguments, config: Config, sbx: Sbx, agent: SshAgent) -> tuple[l
         sbx.set_github_token(args.name, args.github_token_file.read_text().strip())
     else:
         sbx.clear_github_token(args.name)
-    sbx.set_git_identity(args.name, args.git_name or "", args.git_email or "")
-    sbx.set_commit_signing(args.name, public_key or "")
+    # Blank values make git refuse to commit/sign, so a launch without an
+    # identity or key never leaves a previous launch's configuration behind.
+    git_config = [
+        ("user.name", args.git_name or ""),
+        ("user.email", args.git_email or ""),
+        ("gpg.format", "ssh"),
+        ("commit.gpgsign", "true"),
+        ("user.signingkey", f"key::{public_key}" if public_key else ""),
+    ]
+    for key, value in git_config:
+        sbx.set_git_config(args.name, key, value)
     check_forwarded_keys(fingerprints(loaded), sbx.agent_fingerprints(args.name))
 
     return loaded, public_key
