@@ -4,10 +4,9 @@ import argparse
 import os
 import re
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
 
 from agent_sandbox.config import AGENT, Config
 from agent_sandbox.errors import SandboxError
@@ -251,11 +250,6 @@ def execution_description(args: Arguments, ssh_agent: SshAgent) -> str:
     return "\n".join(f"==> {note}" for note in notes)
 
 
-def launch_sbx(sbx: Sbx, args: Arguments, env: Mapping[str, str], host: HostPort) -> NoReturn:
-    """Replace this process with sbx: it gets the terminal, signals and exit code."""
-    host.exec(sbx.run_args(args.name, args.agent_args), env)
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     config = Config.default()
@@ -274,4 +268,5 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     print(execution_description(args, ssh_agent), file=sys.stderr)
-    launch_sbx(sbx, args, env, host)
+    # Replace this process with sbx: it gets the terminal, signals and exit code.
+    host.exec(sbx.run_args(args.name, args.agent_args), env)
