@@ -12,6 +12,20 @@ def host() -> Host:
     return Host(os.getuid())
 
 
+# --- run ------------------------------------------------------------------------
+
+
+def test_run_executes_the_command_and_captures_output(host):
+    result = host.run(["echo", "hi"])
+
+    assert result.stdout == "hi\n"
+
+
+def test_run_translates_a_missing_executable_into_sandboxerror(host):
+    with pytest.raises(SandboxError, match="not-a-real-command not found in PATH"):
+        host.run(["not-a-real-command"])
+
+
 # --- environ ------------------------------------------------------------------
 
 
