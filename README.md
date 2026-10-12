@@ -99,8 +99,11 @@ $ sbx daemon restart
 
 ```console
 $ uv sync --extra dev
-$ uv run pytest
-$ uv run mypy
-$ uv run ruff check .
 $ uv run ruff format .
+$ uv run ruff check .
+$ uv run mypy
+$ uv run pytest
 ```
+
+`.claude/hooks/pre-commit-checks.sh` enforces the same order (with `ruff format --check`,
+since it only checks, never rewrites) before any commit.

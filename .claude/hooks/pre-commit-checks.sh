@@ -41,9 +41,11 @@ run_check() {
   fi
 }
 
-run_check "pytest" uv run pytest -q
-run_check "mypy" uv run mypy
-run_check "ruff check" uv run ruff check .
+# Cheapest/fastest checks first, so a trivial style or type issue fails fast
+# instead of waiting on the full test run.
 run_check "ruff format --check" uv run ruff format --check .
+run_check "ruff check" uv run ruff check .
+run_check "mypy" uv run mypy
+run_check "pytest" uv run pytest -q
 
 exit 0
