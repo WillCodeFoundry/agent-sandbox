@@ -1,8 +1,8 @@
 # Architecture
 
-This document states the rules a regenerated implementation of `agent_sandbox` must follow. It
-describes required structure and boundaries, not the current file layout for its own sake — if a
-rule here and the current code ever disagree, the rule wins and the code is a bug.
+This document states the rules any implementation of `agent_sandbox` must follow. It describes
+required structure and boundaries, not the current file layout for its own sake — if a rule here
+and the current code ever disagree, the rule wins and the code is a bug.
 
 For *why* a rule exists, follow the link into `docs/decisions/`. For the *exact* observable
 behavior each module must produce, see the corresponding `tests/test_*.py` file — this document
