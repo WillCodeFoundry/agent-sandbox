@@ -6,8 +6,9 @@ own SSH agent and a read-only context directory. Each launch:
 1. refuses path layouts that would undo the sandbox's protections (see below);
 2. starts (or reuses) an `ssh-agent` dedicated to the sandbox, and makes the key you pass
    the only key it holds;
-3. creates the sandbox if needed, then checks from inside it that it sees exactly that
-   key, so your personal agent can't have been forwarded;
+3. creates the sandbox if needed, working in its own git clone of the workspace rather than
+   a direct writable mount, then checks from inside it that it sees exactly that key, so
+   your personal agent can't have been forwarded;
 4. runs `sbx run` with only that agent's socket visible, mounting the context directory
    read-only.
 
@@ -38,6 +39,13 @@ $ uv run agent_sandbox --name myproj-dev --context ./agents/dev --ssh-key ~/.ssh
 A sandbox's mounts are fixed when it is created: re-using a `--name` with a different
 workspace or `--context` re-attaches to the existing sandbox with its original mounts.
 Remove it first (`sbx rm NAME`) to change them.
+
+The sandbox always works in its own git clone of the workspace (`sbx create --clone`), never
+a direct writable mount — the host repository itself is never writable from inside the
+sandbox. This requires the workspace to be a git repository (its main checkout, not a
+worktree); commits stay in the sandbox's clone until fetched back (`sbx` adds a
+`sandbox-NAME` git remote on the host for this). See [sbx's own docs on clone
+mode](https://docs.docker.com/ai/sandboxes/architecture/) for the exact mechanics.
 
 The sandbox's SSH agent listens on `/tmp/sbx-agents-<uid>/<name>.sock`. On every launch it
 is emptied and given exactly `--ssh-key` (or nothing, if omitted), so a key from an earlier

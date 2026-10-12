@@ -8,7 +8,7 @@ from agent_sandbox.sbx import Sbx
 SANDBOX_ENV = {"PATH": "/bin", "SSH_AUTH_SOCK": "/sockets/n.sock"}
 EXISTS = ("sbx", "exec", "n", "true")
 LIST = ("sbx", "exec", "n", "ssh-add", "-l")
-CREATE = ("sbx", "create", "--name", "n", "claude", "/w", "/ctx:ro")
+CREATE = ("sbx", "create", "--clone", "--name", "n", "claude", "/w", "/ctx:ro")
 SET_NAME = ("sbx", "exec", "n", "git", "config", "--global", "user.name", "Dev")
 
 
@@ -34,7 +34,7 @@ def test_exists(host, sbx, exit_code, exists):
     assert sbx.exists("n") is exists
 
 
-def test_create_mounts_context_read_only(host, sbx):
+def test_create_clones_the_workspace_and_mounts_context_read_only(host, sbx):
     host.responses = {CREATE: 0}
 
     sbx.create("n", "claude", Path("/w"), Path("/ctx"))
