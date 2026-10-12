@@ -105,7 +105,5 @@ $ uv run mypy
 $ uv run pytest
 ```
 
-Run them in this order: cheapest and fastest first, so a trivial style or type issue fails
-fast instead of making you wait on the full test run. `.claude/hooks/pre-commit-checks.sh`
-enforces the same order (with `ruff format --check`, since it only checks, never rewrites)
-before any commit.
+`.claude/hooks/pre-commit-checks.sh` enforces the same order (with `ruff format --check`,
+since it only checks, never rewrites) before any commit.
