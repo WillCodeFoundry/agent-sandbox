@@ -281,15 +281,16 @@ def test_every_sbx_call_carries_the_sandboxs_socket(prepare, ready_host, socket)
     assert sbx_envs and all(env is not None and env["SSH_AUTH_SOCK"] == str(socket) for env in sbx_envs)
 
 
-def test_creates_a_missing_sandbox_before_checking_it(prepare, ready_host, workspace, context):
-    create = ("sbx", "create", "--name", NAME, "claude", f"{workspace}", f"{context}:ro")
+def test_creates_a_missing_cloned_sandbox_before_checking_it(prepare, ready_host, workspace, context):
+    create = ("sbx", "create", "--clone", "--name", NAME, "claude", f"{workspace}", f"{context}:ro")
     ready_host.responses[EXISTS] = 1
     ready_host.responses[create] = 0
 
-    prepare()
+    cmd = prepare()
 
     commands = ready_host.commands
     assert commands.index(create) < commands.index(SANDBOX_LIST_KEYS)
+    assert "cloned, not directly writable" in cmd.message
 
 
 def test_reuses_an_existing_sandbox(prepare, ready_host):

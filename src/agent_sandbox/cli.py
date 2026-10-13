@@ -237,7 +237,7 @@ def execution_description(args: Arguments, ssh_agent: SshAgent) -> str:
         *(f"key:       {key}" for key in loaded),
         *([] if loaded else ["warning: the sandbox's agent holds no key (pass --ssh-key)"]),
         f"sandbox:   {args.name}",
-        f"workspace: {args.workspace}",
+        f"workspace: {args.workspace} (cloned, not directly writable)",
         f"context:   {args.context} (read-only)",
         "github:    token configured" if args.github_token_file is not None else
         "github:    no token (pass --github-token-file to enable gh)",

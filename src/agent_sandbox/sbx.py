@@ -36,7 +36,10 @@ class Sbx:
         return self._sbx("exec", name, "true").returncode == 0
 
     def create(self, name: str, agent: str, workspace: Path, context: Path) -> None:
-        result = self._sbx("create", "--name", name, agent, f"{workspace}", f"{context}:ro")
+        # --clone: the sandbox works in its own git clone, never a direct writable
+        # mount of the workspace. The workspace must be a git repo (its main
+        # checkout, not a worktree); sbx enforces and reports that itself.
+        result = self._sbx("create", "--clone", "--name", name, agent, f"{workspace}", f"{context}:ro")
         if result.returncode != 0:
             raise SandboxError(f"sbx create failed: {result.stderr.strip()}")
 
