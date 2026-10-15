@@ -1,9 +1,40 @@
-.venv/
+# Python-generated files
 __pycache__/
-*.egg-info/
+*.py[cod]
+*.so
+
+# Build / packaging
 build/
 dist/
+wheels/
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtual environments (uv.lock is tracked)
+.venv/
+
+# Test, coverage and type-check caches
 .pytest_cache/
+.hypothesis/
 .coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+.mypy_cache/
+.dmypy.json
+.ruff_cache/
+
+# Mutation testing
 .mutmut-cache
 mutants/
+
+# Local environment
+.env
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

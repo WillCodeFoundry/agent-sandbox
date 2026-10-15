@@ -105,13 +105,31 @@ $ sbx daemon restart
 
 ## Development
 
+This project uses [uv](https://docs.astral.sh/uv/) for environments, dependencies
+and running tools. Do not use `pip`.
+
 ```console
-$ uv sync --extra dev
-$ uv run ruff format .
+$ uv sync                       # create .venv from uv.lock, with the dev dependency group
+$ uv run pre-commit install     # git hooks as a safety net
+$ uv run ruff format --check .
 $ uv run ruff check .
 $ uv run mypy
-$ uv run pytest
+$ uv run pytest -q
 ```
 
-`.claude/hooks/pre-commit-checks.sh` enforces the same order (with `ruff format --check`,
-since it only checks, never rewrites) before any commit.
+These four checks are what CI runs; run them explicitly before committing (`uv run
+ruff format .` fixes formatting). `uv.lock` is tracked and CI installs from it exactly
+(`uv sync --locked`): commit it whenever dependencies change, and refresh versions
+deliberately with `uv lock --upgrade`. A weekly `latest-deps` workflow tests against the
+newest allowed versions, ignoring the lockfile. The ruff version is pinned in
+`pyproject.toml` and `.pre-commit-config.yaml`; change both together.
+
+Two hooks back the checks up; they are a safety net, not the check:
+
+- The pre-commit hooks run ruff and mypy on every `git commit`. Do not invoke
+  pre-commit directly in place of the commands above.
+- For Claude Code, `.claude/hooks/pre-commit-checks.sh` blocks any `git commit` that
+  carries a `Co-Authored-By` trailer, uses `--no-verify` or `--no-gpg-sign`, or would
+  be unsigned, and runs the four checks first (fastest first, failing fast).
+
+Commits are signed and carry no co-author trailers.

@@ -1,0 +1,24 @@
+# Weekly check against the newest dependency versions allowed by pyproject.toml,
+# ignoring uv.lock, so upstream drift shows up without blocking PRs.
+name: latest-deps
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --upgrade
+      - run: uv run mypy
+      - run: uv run pytest -q
