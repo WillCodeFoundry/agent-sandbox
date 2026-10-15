@@ -114,11 +114,12 @@ $ uv run pre-commit install     # git hooks as a safety net
 $ uv run ruff format --check .
 $ uv run ruff check .
 $ uv run mypy
-$ uv run pytest -q
+$ uv run pytest
 ```
 
 These four checks are what CI runs; run them explicitly before committing (`uv run
-ruff format .` fixes formatting). `uv.lock` is tracked and CI installs from it exactly
+ruff format .` fixes formatting). pytest is quiet by default (`addopts = "-q"` in
+`pyproject.toml`); use `-vv` to list individual tests. `uv.lock` is tracked and CI installs from it exactly
 (`uv sync --locked`): commit it whenever dependencies change, and refresh versions
 deliberately with `uv lock --upgrade`. Dev tools are an opt-in group: a plain `uv sync`
 installs none. A small weekly `latest-deps` workflow runs the fast tests on every supported

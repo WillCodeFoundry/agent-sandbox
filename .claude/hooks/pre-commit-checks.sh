@@ -76,6 +76,6 @@ run_check() {
 run_check "ruff format --check" uv run ruff format --check .
 run_check "ruff check" uv run ruff check .
 run_check "mypy" uv run mypy
-run_check "pytest" uv run pytest -q
+run_check "pytest" uv run pytest
 
 exit 0
