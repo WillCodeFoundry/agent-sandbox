@@ -109,7 +109,7 @@ This project uses [uv](https://docs.astral.sh/uv/) for environments, dependencie
 and running tools. Do not use `pip`.
 
 ```console
-$ uv sync                       # create .venv from uv.lock, with the dev dependency group
+$ uv sync --group dev           # create .venv from uv.lock, with the opt-in dev tools
 $ uv run pre-commit install     # git hooks as a safety net
 $ uv run ruff format --check .
 $ uv run ruff check .
@@ -120,8 +120,10 @@ $ uv run pytest -q
 These four checks are what CI runs; run them explicitly before committing (`uv run
 ruff format .` fixes formatting). `uv.lock` is tracked and CI installs from it exactly
 (`uv sync --locked`): commit it whenever dependencies change, and refresh versions
-deliberately with `uv lock --upgrade`. A weekly `latest-deps` workflow tests against the
-newest allowed versions, ignoring the lockfile. The ruff version is pinned in
+deliberately with `uv lock --upgrade`. Dev tools are an opt-in group: a plain `uv sync`
+installs none. A small weekly `latest-deps` workflow runs the fast tests on every supported
+Python against the newest allowed versions, ignoring the lockfile (mutation testing stays
+in PR CI only). The ruff version is pinned in
 `pyproject.toml` and `.pre-commit-config.yaml`; change both together.
 
 Two hooks back the checks up; they are a safety net, not the check:

@@ -13,6 +13,9 @@ dependencies = []
 [dependency-groups]
 dev = ["pytest>=8", "mypy>=1.15", "ruff==0.17.0", "pytest-cov>=5", "mutmut>=3", "pre-commit>=3"]
 
+[tool.uv]
+default-groups = []  # dev tools are opt-in: `uv sync --group dev`
+
 [project.scripts]
 agent_sandbox = "agent_sandbox.cli:main"
 

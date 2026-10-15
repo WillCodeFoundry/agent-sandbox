@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --locked
+      - run: uv sync --locked --group dev
       - run: uv run ruff format --check .
       - run: uv run ruff check .
 
@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --locked
+      - run: uv sync --locked --group dev
       - run: uv run mypy
 
   test:
@@ -47,7 +47,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --locked
+      - run: uv sync --locked --group dev
       - run: uv run pytest -q
 
   # Raw survivor count is not itself a merge gate: argparse help text and the
@@ -64,7 +64,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --locked
+      - run: uv sync --locked --group dev
       - run: uv run mutmut run
         continue-on-error: true
       - if: always()
