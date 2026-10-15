@@ -1,0 +1,28 @@
+# Weekly and small: the fast tests on every supported Python against the newest
+# dependency versions pyproject.toml allows (ignoring uv.lock), so upstream drift
+# shows up without blocking PRs. Slow checks (e.g. mutation testing) stay out.
+name: latest-deps
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"] # requires-python floor .. newest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --upgrade --group dev
+      - run: uv run pytest -m "not slow"
