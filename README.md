@@ -139,10 +139,14 @@ These four are what CI's `ruff`/`mypy`/`test` jobs run. A weekly `latest-deps` w
 also runs the fast tests on every supported Python against the newest allowed
 versions, ignoring `uv.lock` (mutation testing stays in PR CI only).
 
+No need to run these before every commit - the installed hook (below) already does.
+Use them for fast feedback while iterating, before you're ready to commit, or to check
+one tool in isolation.
+
 ### Hooks
 
-Two hooks back the checks up; they are a safety net, not a substitute for running the
-commands above yourself:
+Two hooks run the checks automatically, so a commit or push never skips them even if
+you forgot to run them yourself:
 
 - **`pre-commit`** (`.pre-commit-config.yaml`, all `repo: local` hooks via `uv run` - no
   version pinned outside the `dev` group):
