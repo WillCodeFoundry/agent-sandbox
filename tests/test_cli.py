@@ -29,6 +29,7 @@ BLANK_GIT_EMAIL = ("sbx", "exec", NAME, "git", "config", "--global", "user.email
 SET_GPG_FORMAT = ("sbx", "exec", NAME, "git", "config", "--global", "gpg.format", "ssh")
 SET_GPGSIGN = ("sbx", "exec", NAME, "git", "config", "--global", "commit.gpgsign", "true")
 BLANK_SIGNING_KEY = ("sbx", "exec", NAME, "git", "config", "--global", "user.signingkey", "")
+ALLOW_GITHUB_SSH = ("sbx", "policy", "allow", "network", "--sandbox", NAME, "github.com:22")
 NO_KEYS, NO_AGENT = 1, 2  # ssh-add -l exit codes
 KEY_LINE = "256 SHA256:abc test-key (ED25519)\n"
 PUBLIC_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest test-key"
@@ -91,6 +92,7 @@ def ready_host(host):
         DELETE_ALL: 0,
         EXISTS: 0,
         SANDBOX_LIST_KEYS: NO_KEYS,
+        ALLOW_GITHUB_SSH: 0,
         KNOWN_HOSTS: 0,
         CLEAR_TOKEN: 0,
         BLANK_GIT_NAME: 0,
@@ -308,6 +310,19 @@ def test_reuses_an_existing_sandbox(prepare, ready_host):
     prepare()
 
     assert not any(command[:2] == ("sbx", "create") for command in ready_host.commands)
+
+
+def test_allows_this_sandboxs_ssh_traffic_to_github_on_every_launch(prepare, ready_host):
+    prepare()
+
+    assert ALLOW_GITHUB_SSH in ready_host.commands
+
+
+def test_github_ssh_policy_failure_is_reported(prepare, ready_host):
+    ready_host.responses[ALLOW_GITHUB_SSH] = 1
+
+    with pytest.raises(SandboxError, match="sbx policy allow failed"):
+        prepare()
 
 
 def test_seeds_githubs_known_host_keys_on_every_launch(prepare, ready_host):

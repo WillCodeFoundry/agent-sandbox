@@ -54,6 +54,16 @@ class Sbx:
         if result.returncode != 0:
             raise SandboxError(f"sbx create failed: {result.stderr.strip()}")
 
+    def ensure_github_ssh_allowed(self, name: str) -> None:
+        """Allow this sandbox's raw SSH traffic to GitHub.
+
+        sbx's network policy is deny-by-default for non-HTTP(S) TCP, so without this
+        the sandbox's git operations over its forwarded ssh-agent have no route out.
+        """
+        result = self._sbx("policy", "allow", "network", "--sandbox", name, "github.com:22")
+        if result.returncode != 0:
+            raise SandboxError(f"sbx policy allow failed: {result.stderr.strip()}")
+
     def ensure_known_hosts(self, name: str) -> None:
         """Trust GitHub's published host keys, so the sandbox's first SSH git operation
         doesn't block on host-key verification - there's no TTY inside it to confirm one.

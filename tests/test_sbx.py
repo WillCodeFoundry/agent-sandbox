@@ -59,6 +59,24 @@ def test_create_failure_is_reported(host, sbx):
         sbx.create("n", "claude", Path("/w"), Path("/ctx"))
 
 
+ALLOW_GITHUB_SSH = ("sbx", "policy", "allow", "network", "--sandbox", "n", "github.com:22")
+
+
+def test_ensure_github_ssh_allowed(host, sbx):
+    host.responses = {ALLOW_GITHUB_SSH: 0}
+
+    sbx.ensure_github_ssh_allowed("n")
+
+    assert host.commands == [ALLOW_GITHUB_SSH]
+
+
+def test_ensure_github_ssh_allowed_failure_is_reported(host, sbx):
+    host.responses = {ALLOW_GITHUB_SSH: 1}
+
+    with pytest.raises(SandboxError, match="sbx policy allow failed"):
+        sbx.ensure_github_ssh_allowed("n")
+
+
 def test_ensure_known_hosts_seeds_githubs_published_keys(host, sbx):
     host.responses = {KNOWN_HOSTS: 0}
 

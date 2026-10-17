@@ -9,10 +9,13 @@ own SSH agent and a read-only context directory. Each launch:
 3. creates the sandbox if needed, working in its own git clone of the workspace rather than
    a direct writable mount, then checks from inside it that it sees exactly that key, so
    your personal agent can't have been forwarded;
-4. seeds the sandbox's `~/.ssh/known_hosts` with GitHub's own published host keys, so its
+4. allows this one sandbox's raw SSH traffic to GitHub (`sbx policy allow network --sandbox
+   NAME github.com:22`), since sbx denies non-HTTP(S) TCP by default and the sandbox's git
+   operations over its forwarded ssh-agent would otherwise have no route out;
+5. seeds the sandbox's `~/.ssh/known_hosts` with GitHub's own published host keys, so its
    first SSH git operation doesn't block on host-key verification - there's no TTY inside it
    to confirm one;
-5. runs `sbx run` with only that agent's socket visible, mounting the context directory
+6. runs `sbx run` with only that agent's socket visible, mounting the context directory
    read-only.
 
 ## Install
