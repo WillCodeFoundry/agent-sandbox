@@ -1,4 +1,6 @@
-"""agent_sandbox --name NAME --context DIR [--ssh-key FILE] WORKSPACE [-- AGENT_ARGS...]"""
+"""agent_sandbox --name NAME --context DIR [--ssh-key FILE] [--github-token-file FILE]
+[--git-name NAME --git-email EMAIL] WORKSPACE [-- AGENT_ARGS...]
+"""
 
 import argparse
 import os
@@ -73,7 +75,10 @@ def parse_args(argv: Sequence[str]) -> Arguments:
     parser = argparse.ArgumentParser(
         prog="agent_sandbox",
         description=f"Launch a {AGENT} sandbox with its own ssh-agent and a read-only context directory.",
-        usage="%(prog)s --name NAME --context DIR [--ssh-key FILE] WORKSPACE [-- AGENT_ARGS...]",
+        usage=(
+            "%(prog)s --name NAME --context DIR [--ssh-key FILE] [--github-token-file FILE]\n"
+            "                     [--git-name NAME --git-email EMAIL] WORKSPACE [-- AGENT_ARGS...]"
+        ),
         epilog=(
             "example:\n"
             "  agent_sandbox --name myproj-dev --context ./agents/dev \\\n"
@@ -201,8 +206,9 @@ def ensure_sandbox_present(args: Arguments, config: Config, sbx: Sbx, host: Host
 
     ssh_key = args.ssh_key
     public_key = host.public_key_path(ssh_key).read_text().strip() if ssh_key is not None else None
-    # Blank values make git refuse to commit/sign, so a launch without an
-    # identity or key never leaves a previous launch's configuration behind.
+    # Empty values are unset (see Sbx.set_git_config) so git refuses to commit/sign,
+    # meaning a launch without an identity or key never leaves a previous launch's
+    # configuration behind.
     git_config = [
         ("user.name", args.git_name or ""),
         ("user.email", args.git_email or ""),

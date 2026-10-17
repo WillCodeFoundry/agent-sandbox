@@ -10,6 +10,7 @@ EXISTS = ("sbx", "exec", "n", "true")
 LIST = ("sbx", "exec", "n", "ssh-add", "-l")
 CREATE = ("sbx", "create", "--clone", "--name", "n", "claude", "/w", "/ctx:ro")
 SET_NAME = ("sbx", "exec", "n", "git", "config", "--global", "user.name", "Dev")
+UNSET_NAME = ("sbx", "exec", "n", "git", "config", "--global", "--unset-all", "user.name")
 
 
 def known_hosts_command(name: str) -> tuple[str, ...]:
@@ -150,6 +151,28 @@ def test_set_git_config_failure_is_reported(host, sbx):
 
     with pytest.raises(SandboxError, match="sbx exec git config failed"):
         sbx.set_git_config("n", "user.name", "Dev")
+
+
+def test_set_git_config_blanks_by_unsetting(host, sbx):
+    """An empty value must never reach sbx exec as an empty argument (sbx rejects it)."""
+    host.responses = {UNSET_NAME: 0}
+
+    sbx.set_git_config("n", "user.name", "")
+
+    assert host.commands == [UNSET_NAME]
+
+
+def test_set_git_config_blank_tolerates_an_already_unset_key(host, sbx):
+    host.responses = {UNSET_NAME: 5}  # git's exit code for "nothing to unset"
+
+    sbx.set_git_config("n", "user.name", "")  # must not raise
+
+
+def test_set_git_config_blank_failure_is_reported(host, sbx):
+    host.responses = {UNSET_NAME: 1}
+
+    with pytest.raises(SandboxError, match="sbx exec git config failed"):
+        sbx.set_git_config("n", "user.name", "")
 
 
 def test_agent_fingerprints_of_the_sandboxs_keys(host, sbx):
