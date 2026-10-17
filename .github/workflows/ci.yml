@@ -54,7 +54,9 @@ jobs:
   # like are permanently unkillable mutants that need a human to triage, not
   # a threshold. What IS gated is regression against mutmut-baseline.txt -
   # already-triaged survivors are expected and fine; a *new* one means a
-  # change just lost test coverage it used to have.
+  # change just lost test coverage it used to have. The check itself lives in
+  # scripts/check-mutmut-baseline.sh - the same script the local pre-push hook
+  # runs - so there is exactly one definition of the gate.
   mutmut:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -65,19 +67,13 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked --group dev
-      - run: uv run mutmut run
-        continue-on-error: true
-      - if: always()
-        run: uv run mutmut results | sed -E 's/^[[:space:]]+//' | sort > /tmp/mutmut-current.txt
-      - name: Check for new mutation survivors
-        run: |
-          new_survivors=$(comm -13 mutmut-baseline.txt /tmp/mutmut-current.txt)
-          if [ -n "$new_survivors" ]; then
-            echo "::error::New mutants survived that aren't in mutmut-baseline.txt:"
-            echo "$new_survivors"
-            echo
-            echo "If this is expected, regenerate the baseline locally and commit it:"
-            echo "  uv run mutmut run && uv run mutmut results | sed -E 's/^[[:space:]]+//' | sort > mutmut-baseline.txt"
-            exit 1
-          fi
-          echo "No new mutation survivors."
+      # mutmut's persistent state lives under mutants/ (mutmut-stats.json), not
+      # .mutmut-cache - caching it lets mutmut skip re-testing mutants whose
+      # source and tests haven't changed, instead of a full run every time.
+      - uses: actions/cache@v4
+        with:
+          path: mutants/
+          key: mutmut-${{ runner.os }}-${{ hashFiles('src/**', 'tests/**', 'pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            mutmut-${{ runner.os }}-
+      - run: ./scripts/check-mutmut-baseline.sh

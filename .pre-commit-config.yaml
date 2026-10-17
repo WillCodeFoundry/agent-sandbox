@@ -1,14 +1,45 @@
+# All hooks are `repo: local` and run via `uv run`, so the only place any tool's
+# version is pinned is the `dev` group in pyproject.toml - never a second pin here.
+#
+# Install both hook types once per clone: `uv run pre-commit install --hook-type
+# pre-commit --hook-type pre-push`. The pre-commit stage mirrors CI's ruff/mypy/test
+# jobs; mutation testing is slow, so it only runs pre-push, and only fails on a
+# *new* survivor against mutmut-baseline.txt, exactly like CI's mutmut job.
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.0  # keep equal to the ruff pin in pyproject.toml
-    hooks:
-      - id: ruff-format
-      - id: ruff-check
   - repo: local
     hooks:
+      - id: ruff-format
+        name: ruff format --check
+        entry: uv run ruff format --check .
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-commit]
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check .
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-commit]
       - id: mypy
         name: mypy
         entry: uv run mypy
         language: system
         pass_filenames: false
         types: [python]
+        stages: [pre-commit]
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: mutmut-baseline
+        name: mutmut (fail only on a new survivor vs mutmut-baseline.txt)
+        entry: scripts/check-mutmut-baseline.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

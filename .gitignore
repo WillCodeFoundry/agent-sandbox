@@ -27,8 +27,8 @@ coverage.xml
 .dmypy.json
 .ruff_cache/
 
-# Mutation testing
-.mutmut-cache
+# Mutation testing - mutants/ holds mutmut's persistent state (mutmut-stats.json),
+# not .mutmut-cache; that path is a dead mutmut 2.x convention mutmut 3 never creates.
 mutants/
 
 # Local environment
