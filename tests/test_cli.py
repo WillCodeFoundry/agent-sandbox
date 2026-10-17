@@ -14,7 +14,7 @@ from agent_sandbox.cli import (
 from agent_sandbox.config import Config
 from agent_sandbox.errors import SandboxError
 from agent_sandbox.host import HostPort
-from agent_sandbox.sbx import Sbx
+from agent_sandbox.sbx import GITHUB_HOST_KEYS, Sbx
 from agent_sandbox.ssh_agent import SshAgent
 
 NAME = "myproj-dev"
@@ -37,6 +37,16 @@ PERSONAL_ENV = {"PATH": "/bin", "SSH_AUTH_SOCK": "/personal.sock", "SSH_AGENT_PI
 
 def signing_key_command(public_key: str) -> tuple[str, ...]:
     return ("sbx", "exec", NAME, "git", "config", "--global", "user.signingkey", f"key::{public_key}")
+
+
+def known_hosts_command() -> tuple[str, ...]:
+    setup = "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts"
+    seed_one = "(grep -qxF '{key}' ~/.ssh/known_hosts || echo '{key}' >> ~/.ssh/known_hosts)"
+    script = " && ".join((setup, *(seed_one.format(key=key) for key in GITHUB_HOST_KEYS)))
+    return ("sbx", "exec", NAME, "sh", "-c", script)
+
+
+KNOWN_HOSTS = known_hosts_command()
 
 
 @pytest.fixture
@@ -81,6 +91,7 @@ def ready_host(host):
         DELETE_ALL: 0,
         EXISTS: 0,
         SANDBOX_LIST_KEYS: NO_KEYS,
+        KNOWN_HOSTS: 0,
         CLEAR_TOKEN: 0,
         BLANK_GIT_NAME: 0,
         BLANK_GIT_EMAIL: 0,
@@ -297,6 +308,19 @@ def test_reuses_an_existing_sandbox(prepare, ready_host):
     prepare()
 
     assert not any(command[:2] == ("sbx", "create") for command in ready_host.commands)
+
+
+def test_seeds_githubs_known_host_keys_on_every_launch(prepare, ready_host):
+    prepare()
+
+    assert KNOWN_HOSTS in ready_host.commands
+
+
+def test_known_hosts_seed_failure_is_reported(prepare, ready_host):
+    ready_host.responses[KNOWN_HOSTS] = 1
+
+    with pytest.raises(SandboxError, match="sbx exec known_hosts seed failed"):
+        prepare()
 
 
 def test_the_agent_holds_exactly_the_given_key(prepare, ready_host, ssh_key):
