@@ -86,7 +86,15 @@ class Sbx:
             raise SandboxError(f"sbx secret rm failed: {result.stderr.strip()}")
 
     def set_git_config(self, name: str, key: str, value: str) -> None:
-        result = self._sbx("exec", name, "git", "config", "--global", key, value)
+        if value:
+            result = self._sbx("exec", name, "git", "config", "--global", key, value)
+        else:
+            # An empty value would reach sbx exec as an empty command argument,
+            # which its backend rejects outright (400: cmd element is empty).
+            # Clear the key by unsetting it instead; exit 5 means it already was.
+            result = self._sbx("exec", name, "git", "config", "--global", "--unset-all", key)
+            if result.returncode == 5:
+                return
         if result.returncode != 0:
             raise SandboxError(f"sbx exec git config failed: {result.stderr.strip()}")
 

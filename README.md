@@ -66,8 +66,8 @@ existing sandbox's token gets rotated; omitted, it's cleared (`sbx secret rm git
 to this one sandbox only, so different sandboxes can use different tokens.
 
 The sandbox's global git identity (`git config --global user.name`/`user.email`) is set
-from `--git-name`/`--git-email` on every launch, the same way. Omit both and they're set
-to empty strings on purpose: git treats an empty identity as unset and refuses to commit
+from `--git-name`/`--git-email` on every launch, the same way. Omit both and they're
+unset on purpose: git treats a missing identity as unset and refuses to commit
 (`*** Please tell me who you are.`), so a forgotten `--git-name`/`--git-email` fails loudly
 at commit time inside the sandbox rather than silently committing as the wrong person.
 
@@ -75,7 +75,7 @@ Commits are always configured to be SSH-signed (`gpg.format ssh`, `commit.gpgsig
 using `--ssh-key`'s matching `.pub` file (read by naming convention: `KEY` pairs with
 `KEY.pub`) as `user.signingkey`. The private key itself never needs to be readable inside
 the sandbox — signing happens through the forwarded agent, the same way authentication
-does. Without `--ssh-key`, `user.signingkey` is blanked on purpose: with no signing key,
+does. Without `--ssh-key`, `user.signingkey` is unset on purpose: with no signing key,
 git refuses to commit (`error: user.signingkey needs to be set for ssh signing`), so a
 sandbox without a key fails loudly at commit time instead of committing unsigned.
 
