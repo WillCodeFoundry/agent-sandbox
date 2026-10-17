@@ -3,13 +3,23 @@ from pathlib import Path
 import pytest
 
 from agent_sandbox.errors import SandboxError
-from agent_sandbox.sbx import Sbx
+from agent_sandbox.sbx import GITHUB_HOST_KEYS, Sbx
 
 SANDBOX_ENV = {"PATH": "/bin", "SSH_AUTH_SOCK": "/sockets/n.sock"}
 EXISTS = ("sbx", "exec", "n", "true")
 LIST = ("sbx", "exec", "n", "ssh-add", "-l")
 CREATE = ("sbx", "create", "--clone", "--name", "n", "claude", "/w", "/ctx:ro")
 SET_NAME = ("sbx", "exec", "n", "git", "config", "--global", "user.name", "Dev")
+
+
+def known_hosts_command(name: str) -> tuple[str, ...]:
+    setup = "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts"
+    seed_one = "(grep -qxF '{key}' ~/.ssh/known_hosts || echo '{key}' >> ~/.ssh/known_hosts)"
+    script = " && ".join((setup, *(seed_one.format(key=key) for key in GITHUB_HOST_KEYS)))
+    return ("sbx", "exec", name, "sh", "-c", script)
+
+
+KNOWN_HOSTS = known_hosts_command("n")
 
 
 @pytest.fixture
@@ -47,6 +57,50 @@ def test_create_failure_is_reported(host, sbx):
 
     with pytest.raises(SandboxError, match="sbx create failed"):
         sbx.create("n", "claude", Path("/w"), Path("/ctx"))
+
+
+ALLOW_GITHUB_SSH = ("sbx", "policy", "allow", "network", "--sandbox", "n", "github.com:22")
+
+
+def test_ensure_github_ssh_allowed(host, sbx):
+    host.responses = {ALLOW_GITHUB_SSH: 0}
+
+    sbx.ensure_github_ssh_allowed("n")
+
+    assert host.commands == [ALLOW_GITHUB_SSH]
+
+
+def test_ensure_github_ssh_allowed_failure_is_reported(host, sbx):
+    host.responses = {ALLOW_GITHUB_SSH: 1}
+
+    with pytest.raises(SandboxError, match="sbx policy allow failed"):
+        sbx.ensure_github_ssh_allowed("n")
+
+
+def test_ensure_known_hosts_seeds_githubs_published_keys(host, sbx):
+    host.responses = {KNOWN_HOSTS: 0}
+
+    sbx.ensure_known_hosts("n")
+
+    assert host.commands == [KNOWN_HOSTS]
+
+
+def test_ensure_known_hosts_failure_is_reported(host, sbx):
+    host.responses = {KNOWN_HOSTS: 1}
+
+    with pytest.raises(SandboxError, match="sbx exec known_hosts seed failed"):
+        sbx.ensure_known_hosts("n")
+
+
+def test_github_host_keys_are_pinned_not_fetched_live():
+    """Regression guard: these must stay hardcoded (GitHub's published keys), never
+    live-fetched via ssh-keyscan, which trusts whatever key the host offers (TOFU).
+    """
+    assert GITHUB_HOST_KEYS == (
+        "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+        "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=",  # noqa: E501
+        "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=",  # noqa: E501
+    )
 
 
 def test_set_github_token(host, sbx):

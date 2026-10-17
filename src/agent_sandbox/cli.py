@@ -189,9 +189,11 @@ def ensure_ssh_agent_running(args: Arguments, ssh_agent: SshAgent) -> None:
 
 
 def ensure_sandbox_present(args: Arguments, config: Config, sbx: Sbx, host: HostPort) -> None:
-    """Make the sandbox exist and match args: github token, git identity, commit signing."""
+    """Make the sandbox exist and match args: SSH policy, known hosts, github token, git identity, commit signing."""
     if not sbx.exists(args.name):
         sbx.create(args.name, config.agent, args.workspace, args.context)
+    sbx.ensure_github_ssh_allowed(args.name)
+    sbx.ensure_known_hosts(args.name)
     if args.github_token_file is not None:
         sbx.set_github_token(args.name, args.github_token_file.read_text().strip())
     else:
