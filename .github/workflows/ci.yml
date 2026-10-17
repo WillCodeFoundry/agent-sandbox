@@ -13,6 +13,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Every job here pins 3.11, requires-python's floor, with the locked dependency
+  # set - this is what verifies the floor we claim to support actually works with
+  # what we ship. latest-deps.yml covers 3.11 and newer, unlocked, on a schedule.
   ruff:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -20,7 +23,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           enable-cache: true
       - run: uv sync --locked --group dev
       - run: uv run ruff format --check .
@@ -33,7 +36,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           enable-cache: true
       - run: uv sync --locked --group dev
       - run: uv run mypy
@@ -41,19 +44,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        # 3.11 is requires-python's floor, pinned with the locked dependency set
-        # (not latest-deps.yml's --upgrade matrix) - this is what verifies the
-        # floor we claim to support actually works with what we ship. 3.12 is
-        # the version every other job runs.
-        python: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.11"
           enable-cache: true
       - run: uv sync --locked --group dev
       - run: uv run pytest
@@ -72,7 +67,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           enable-cache: true
       - run: uv sync --locked --group dev
       # mutmut's persistent state lives under mutants/ (mutmut-stats.json), not
