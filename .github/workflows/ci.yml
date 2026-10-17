@@ -44,11 +44,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.10 is requires-python's floor, pinned with the locked dependency set
+        # 3.11 is requires-python's floor, pinned with the locked dependency set
         # (not latest-deps.yml's --upgrade matrix) - this is what verifies the
         # floor we claim to support actually works with what we ship. 3.12 is
         # the version every other job runs.
-        python: ["3.10", "3.12"]
+        python: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
