@@ -111,40 +111,64 @@ $ sbx daemon restart
 
 ## Development
 
-This project uses [uv](https://docs.astral.sh/uv/) for environments, dependencies
-and running tools. Do not use `pip`.
+This project uses [uv](https://docs.astral.sh/uv/) for environments, dependencies and
+running tools. Do not use `pip`. Python version support follows `requires-python` in
+`pyproject.toml`; `uv` fetches a matching interpreter automatically if your system
+Python doesn't satisfy it.
+
+### Setup
 
 ```console
-$ uv sync --group dev           # create .venv from uv.lock, with the opt-in dev tools
+$ uv sync --group dev
 $ uv run pre-commit install --hook-type pre-commit --hook-type pre-push
-$ uv run ruff format --check .
+```
+
+`uv sync --group dev` creates `.venv` from `uv.lock` and installs the dev tools. They're
+an opt-in group: a plain `uv sync` (what an end user running `agent_sandbox` needs)
+installs none of them, and every tool's version is pinned in that one group - nowhere
+else. `uv run pre-commit install` registers this repo's two git hook types (see
+[Hooks](#hooks) below); nothing else needs installing - Claude Code's own hook requires
+no setup step, since it's wired through `.claude/settings.json`, already checked into
+the repo.
+
+### Checks
+
+```console
+$ uv run ruff format --check .      # uv run ruff format . to fix
 $ uv run ruff check .
 $ uv run mypy
 $ uv run pytest
 ```
 
-These four checks are what CI's `ruff`/`mypy`/`test` jobs run; run them explicitly before
-committing (`uv run ruff format .` fixes formatting). pytest is quiet by default
-(`addopts = "-q"` in `pyproject.toml`); use `-vv` to list individual tests. `uv.lock` is
-tracked and CI installs from it exactly (`uv sync --locked`): commit it whenever
-dependencies change, and refresh versions deliberately with `uv lock --upgrade`. Dev tools
-are an opt-in group: a plain `uv sync` installs none, and every tool's version is pinned in
-that one group - nowhere else. A small weekly `latest-deps` workflow runs the fast tests on
-every supported Python against the newest allowed versions, ignoring the lockfile (mutation
-testing stays in PR CI only).
+These four are what CI's `ruff`/`mypy`/`test` jobs run; run them explicitly before
+committing. pytest is quiet by default (`addopts = "-q"` in `pyproject.toml`); use `-vv`
+to list individual tests. `uv.lock` is tracked and CI installs from it exactly (`uv sync
+--locked`): commit it whenever dependencies change, and refresh versions deliberately
+with `uv lock --upgrade`. A small weekly `latest-deps` workflow runs the fast tests on
+every supported Python against the newest allowed versions, ignoring the lockfile
+(mutation testing stays in PR CI only).
 
-Two hooks back the checks up; they are a safety net, not the check:
+### Hooks
 
-- `pre-commit` (`.pre-commit-config.yaml`, all `repo: local` hooks run via `uv run` - no
-  version pinned outside the `dev` group) installs as two git hook types:
+Two hooks back the checks up; they are a safety net, not a substitute for running the
+commands above yourself:
+
+- **`pre-commit`** (`.pre-commit-config.yaml`, all `repo: local` hooks run via `uv run` -
+  no version pinned outside the `dev` group; installed in [Setup](#setup) above) runs as
+  two git hook types:
   - **pre-commit**: ruff format, ruff check, mypy, pytest - the same four checks as CI,
     minus mutation testing.
-  - **pre-push**: `scripts/check-mutmut-baseline.sh`, mirroring CI's `mutmut` job exactly -
-    re-runs mutation testing and fails only on a *new* survivor against
-    `mutmut-baseline.txt`, so a push is never green locally and red on GitHub for a reason
-    this already caught. Do not invoke `pre-commit` directly in place of the commands above.
-- For Claude Code, `.claude/hooks/pre-commit-checks.sh` blocks any `git commit` that
-  carries a `Co-Authored-By` trailer, uses `--no-verify` or `--no-gpg-sign`, or would
-  be unsigned, and runs the four non-mutation checks first (fastest first, failing fast).
+  - **pre-push**: `scripts/check-mutmut-baseline.sh`, mirroring CI's `mutmut` job exactly
+    - re-runs mutation testing and fails only on a *new* survivor against
+    `mutmut-baseline.txt`, so a push is never green locally and red on GitHub for a
+    reason this already caught.
+
+  Do not invoke `pre-commit` directly in place of the commands above.
+- **Claude Code**: `.claude/hooks/pre-commit-checks.sh`, wired through
+  `.claude/settings.json`. Needs no separate install - both files are checked into the
+  repo and apply automatically to any Claude Code session with it open. Blocks any `git
+  commit` that carries a `Co-Authored-By` trailer, uses `--no-verify` or
+  `--no-gpg-sign`, or would be unsigned, and runs the four non-mutation checks first
+  (fastest first, failing fast).
 
 Commits are signed and carry no co-author trailers.
